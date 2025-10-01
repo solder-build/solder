@@ -17,10 +17,10 @@ export type InstructionLike = {
 };
 
 export type DecodedInstruction = {
-  programId: string;
-  data?: string;
-  parsed?: unknown;
-  meta?: DecodedMeta;
+  contract: string;
+  name: string;
+  type: "instruction" | "event";
+  params: unknown;
 };
 
 const IDL_CONTRACT_ADDRESS_MAP: Record<string, string> = {
