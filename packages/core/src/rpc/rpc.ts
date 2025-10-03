@@ -1,6 +1,17 @@
-import { Connection, Commitment, Cluster, clusterApiUrl, ParsedTransaction } from "@solana/web3.js";
+import {
+  Connection,
+  Commitment,
+  Cluster,
+  clusterApiUrl,
+  ParsedTransaction,
+} from "@solana/web3.js";
 import { DecodedEvent, decodeEvent, decodeInstruction } from "../idl/idl.js";
-import { collectWith, fetchParsedBlock, isParsedInstruction, isPartiallyDecodedInstruction } from "../utils/block.js";
+import {
+  collectWith,
+  fetchParsedBlock,
+  isParsedInstruction,
+  isPartiallyDecodedInstruction,
+} from "../utils/block.js";
 
 export type RpcClientOptions = {
   endpoint?: string;
@@ -34,7 +45,12 @@ export class RpcClient {
   private readonly connection: Connection;
 
   constructor(options: RpcClientOptions = {}) {
-    const { endpoint, cluster = "devnet", commitment = "confirmed", httpHeaders } = options;
+    const {
+      endpoint,
+      cluster = "devnet",
+      commitment = "confirmed",
+      httpHeaders,
+    } = options;
     const url = endpoint ?? clusterApiUrl(cluster);
     this.connection = new Connection(url, { commitment, httpHeaders });
   }
@@ -59,7 +75,7 @@ export class RpcClient {
 
   async getBlockWithInstructions(
     slot: number,
-    filter: { programIds: string[] }
+    filter: { programIds: string[] },
   ): Promise<{
     block_number: number;
     block_hash: string;
@@ -72,7 +88,10 @@ export class RpcClient {
       instructions: InstructionInfo[];
     }>;
   } | null> {
-    const { block, blockHash, blockTime } = await fetchParsedBlock(this.connection, slot);
+    const { block, blockHash, blockTime } = await fetchParsedBlock(
+      this.connection,
+      slot,
+    );
     if (!block || !blockHash) return null;
     const transactions: Array<{
       block_number: number;
@@ -95,15 +114,17 @@ export class RpcClient {
               }
               if (isPartiallyDecodedInstruction(instr)) {
                 const decoded = decodeInstruction(instr.data, programId);
-                return decoded == null ? null : { index, programId, parsed: decoded };
+                return decoded == null
+                  ? null
+                  : { index, programId, parsed: decoded };
               }
               return null;
-            }
+            },
           )
         : [];
 
-      if(!instructions.length) {
-        continue
+      if (!instructions.length) {
+        continue;
       }
 
       transactions.push({
@@ -125,7 +146,7 @@ export class RpcClient {
 
   async getBlockWithEvents(
     slot: number,
-    filter: { programIds: string[] }
+    filter: { programIds: string[] },
   ): Promise<{
     block_number: number;
     block_hash: string;
@@ -138,7 +159,10 @@ export class RpcClient {
       events: EventInfo[];
     }>;
   } | null> {
-    const { block, blockHash, blockTime } = await fetchParsedBlock(this.connection, slot);
+    const { block, blockHash, blockTime } = await fetchParsedBlock(
+      this.connection,
+      slot,
+    );
     if (!block || !blockHash) return null;
     const transactions: Array<{
       block_number: number;
@@ -161,11 +185,9 @@ export class RpcClient {
                 return decoded ? { index, programId, event: decoded } : null;
               }
               return null;
-            }
+            },
           )
         : [];
-
-      events[0].event.params;
 
       if (!events.length) continue;
 
@@ -186,4 +208,3 @@ export class RpcClient {
     };
   }
 }
-
