@@ -3,14 +3,19 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 async function main() {
-  const rpc = new RpcClient({ endpoint: "http://solder-solanad-3d50.devnet.rpcpool.com" });
+  const rpc = new RpcClient({
+    endpoint:
+      "https://solder-solanam-6597.mainnet.rpcpool.com/3b46c479-63d2-4713-8555-49171bd416eb",
+  });
   //   const { blockhash } = await rpc.getLatestBlockhash();
   const slot = await rpc.getSlot();
   //   const blockTime = await rpc.getBlockTime(slot);
 
   //   console.log({ blockhash, slot, blockTime });
   // const t0 = process.hrtime.bigint();
-  const logs = await rpc.getBlockWithEvents(370406939, { programIds: [ "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"] });
+  const logs = await rpc.getBlockWithEvents(370406939, {
+    programIds: ["6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"],
+  });
   // const t1 = process.hrtime.bigint();
 
   // const elapsedMs = Number(t1 - t0) / 1_000_000;
@@ -29,4 +34,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-
