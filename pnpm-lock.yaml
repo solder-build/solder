@@ -8,21 +8,9 @@ importers:
 
   .:
     dependencies:
-      '@types/pg':
-        specifier: ^8.15.5
-        version: 8.15.5
       dotenv:
         specifier: ^17.2.3
         version: 17.2.3
-      drizzle-orm:
-        specifier: ^0.44.6
-        version: 0.44.6(@types/pg@8.15.5)(pg@8.16.3)
-      hono:
-        specifier: ^4.9.8
-        version: 4.9.8
-      pg:
-        specifier: ^8.16.3
-        version: 8.16.3
     devDependencies:
       prettier:
         specifier: ^3.6.2
@@ -147,6 +135,19 @@ importers:
       '@solana/web3.js':
         specifier: ^1.98.4
         version: 1.98.4(bufferutil@4.0.9)(typescript@5.9.2)(utf-8-validate@5.0.10)
+      drizzle-orm:
+        specifier: ^0.44.6
+        version: 0.44.6(@types/pg@8.15.5)(pg@8.16.3)
+      hono:
+        specifier: ^4.9.8
+        version: 4.9.8
+      pg:
+        specifier: ^8.16.3
+        version: 8.16.3
+    devDependencies:
+      '@types/pg':
+        specifier: ^8.15.5
+        version: 8.15.5
 
   packages/eslint-config:
     devDependencies:
