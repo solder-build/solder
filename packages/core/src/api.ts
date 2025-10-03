@@ -21,6 +21,16 @@ function normalizeBasePath(path: string): string {
   return path.endsWith("/") ? path : `${path}/`;
 }
 
+function resolvePrimaryKey(options: {
+  primaryKey?: string | string[];
+}): string {
+  const pkOption = options.primaryKey;
+  if (Array.isArray(pkOption)) {
+    return pkOption[0] ?? "id";
+  }
+  return pkOption ?? "id";
+}
+
 export function generateCrudRouter(tableDef: TableDefinition, db: DbLike) {
   const app = new Hono();
 
@@ -54,9 +64,7 @@ export function generateCrudRouter(tableDef: TableDefinition, db: DbLike) {
   if (ops.read) {
     app.get(`${basePath}:id`, async (c) => {
       const id = c.req.param("id");
-      const pk = Array.isArray(tableDef.options.primaryKey)
-        ? tableDef.options.primaryKey[0]
-        : (tableDef.options.primaryKey ?? "id");
+      const pk = resolvePrimaryKey(tableDef.options);
       const rows = await db
         .select()
         .from(tableDef.table)
@@ -70,9 +78,7 @@ export function generateCrudRouter(tableDef: TableDefinition, db: DbLike) {
     app.patch(`${basePath}:id`, async (c) => {
       const id = c.req.param("id");
       const body = await c.req.json();
-      const pk = Array.isArray(tableDef.options.primaryKey)
-        ? tableDef.options.primaryKey[0]
-        : (tableDef.options.primaryKey ?? "id");
+      const pk = resolvePrimaryKey(tableDef.options);
       const updated = await db
         .update(tableDef.table)
         .set(body)
@@ -86,9 +92,7 @@ export function generateCrudRouter(tableDef: TableDefinition, db: DbLike) {
   if (ops.delete) {
     app.delete(`${basePath}:id`, async (c) => {
       const id = c.req.param("id");
-      const pk = Array.isArray(tableDef.options.primaryKey)
-        ? tableDef.options.primaryKey[0]
-        : (tableDef.options.primaryKey ?? "id");
+      const pk = resolvePrimaryKey(tableDef.options);
       const deleted = await db
         .delete(tableDef.table)
         .where(eq((tableDef.table as any)[pk], id))
@@ -132,9 +136,7 @@ export function buildCrudApiDefinition(
     const enabled = t.options.api?.enabled ?? true;
     if (!enabled) continue;
     const base = normalizeBasePath(t.options.api?.basePath ?? "/");
-    const pk = Array.isArray(t.options.primaryKey)
-      ? t.options.primaryKey[0]
-      : (t.options.primaryKey ?? "id");
+    const pk = resolvePrimaryKey(t.options);
     const ops = {
       list: t.options.api?.operations?.list ?? true,
       read: t.options.api?.operations?.read ?? true,

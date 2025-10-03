@@ -106,7 +106,7 @@ export class RpcClient {
       const signature = signatures[0];
       const instructions = hasMessage(txn.transaction)
         ? collectWith<InstructionInfo>(
-            { transaction: txn.transaction, meta: txn.meta },
+            { transaction: txn.transaction, meta: txn.meta! },
             filter,
             ({ index, programId, instr }) => {
               if (isParsedInstruction(instr)) {
@@ -177,7 +177,7 @@ export class RpcClient {
       const signature = signatures[0];
       const events = hasMessage(txn.transaction)
         ? collectWith<EventInfo>(
-            { transaction: txn.transaction, meta: txn.meta },
+            { transaction: txn.transaction, meta: txn.meta! },
             filter,
             ({ index, programId, instr }) => {
               if (isPartiallyDecodedInstruction(instr)) {

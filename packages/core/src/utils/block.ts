@@ -13,20 +13,23 @@ export type ParsedBlockTx =
   | NonNullable<ParsedAccountsModeBlockResponse["transactions"]>[number];
 
 export function isParsedInstruction(
-  instr: ParsedInstruction | PartiallyDecodedInstruction
+  instr: ParsedInstruction | PartiallyDecodedInstruction,
 ): instr is ParsedInstruction {
   return (instr as ParsedInstruction).parsed !== undefined;
 }
 
 export function isPartiallyDecodedInstruction(
-  instr: ParsedInstruction | PartiallyDecodedInstruction
+  instr: ParsedInstruction | PartiallyDecodedInstruction,
 ): instr is PartiallyDecodedInstruction {
-  return (instr as PartiallyDecodedInstruction).data !== undefined && (instr as any).parsed === undefined;
+  return (
+    (instr as PartiallyDecodedInstruction).data !== undefined &&
+    (instr as any).parsed === undefined
+  );
 }
 
 export async function fetchParsedBlock(
   connection: Connection,
-  slot: number
+  slot: number,
 ): Promise<{
   block: ParsedBlockResponse | ParsedAccountsModeBlockResponse | null;
   blockHash: string | null;
@@ -49,16 +52,22 @@ export function forEachInstruction(
     index: number;
     programId: string;
     instr: ParsedInstruction | PartiallyDecodedInstruction;
-  }) => void
+  }) => void,
 ): void {
   const { transaction, meta } = txn;
   if (!meta || !transaction) return;
   if (meta.err !== null && meta.err !== undefined) return;
   const mainInstructions = transaction.message.instructions;
-  const innerInstructions = (meta.innerInstructions ?? []).flatMap((inner) => inner.instructions);
-  const all: Array<ParsedInstruction | PartiallyDecodedInstruction> = [...mainInstructions, ...innerInstructions];
+  const innerInstructions = (meta.innerInstructions ?? []).flatMap(
+    (inner) => inner.instructions,
+  );
+  const all: Array<ParsedInstruction | PartiallyDecodedInstruction> = [
+    ...mainInstructions,
+    ...innerInstructions,
+  ];
   for (let i = 0; i < all.length; i++) {
     const instr = all[i];
+    if (!instr) continue;
     fn({ index: i + 1, programId: instr.programId.toBase58(), instr });
   }
 }
@@ -70,7 +79,7 @@ export function collectWith<T>(
     index: number;
     programId: string;
     instr: ParsedInstruction | PartiallyDecodedInstruction;
-  }) => T | null
+  }) => T | null,
 ): T[] {
   const results: T[] = [];
   forEachInstruction(txn, ({ index, programId, instr }) => {
@@ -80,5 +89,3 @@ export function collectWith<T>(
   });
   return results;
 }
-
-

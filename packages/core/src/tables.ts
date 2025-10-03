@@ -25,7 +25,7 @@ export type TableDefinition<TTable = any> = {
   options: TableOptions;
 };
 
-export function defineTable(
+export function solderTable(
   name: string,
   columns: any,
   options: TableOptions = {},
@@ -44,7 +44,7 @@ export type Schema = {
   schema: Record<string, any>;
 };
 
-export function defineSchema(...tables: TableDefinition[]): Schema {
+export function solderSchema(...tables: TableDefinition[]): Schema {
   const schema = Object.fromEntries(tables.map((t) => [t.name, t.table]));
   return { tables, schema };
 }

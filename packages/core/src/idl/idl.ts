@@ -42,7 +42,7 @@ const IDL_CONTRACT_ADDRESS_MAP: Record<string, string> = {
 };
 
 // Note: Large IDLs are embedded as JSON strings to avoid accidental mutation
-let IDL_DATA_DICT = {
+const IDL_DATA_DICT = {
   PUMP_FUN: {
     version: "0.1.0",
     name: "pump",
@@ -300,9 +300,9 @@ export function getInstructionCoder(
   if (INSTRUCTION_CODER_CLIENTS[key]) return INSTRUCTION_CODER_CLIENTS[key];
   const contract = IDL_CONTRACT_ADDRESS_MAP[key];
   if (!contract) return null;
-  const json = IDL_DATA_DICT[contract];
+  const json = IDL_DATA_DICT[contract as keyof typeof IDL_DATA_DICT];
   if (!json) return null;
-  const idl: Idl = JSON.parse(json) as Idl;
+  const idl: Idl = JSON.parse(json as unknown as string) as Idl;
   const coder = new BorshCoder(idl);
   return coder.instruction;
 }
@@ -312,10 +312,10 @@ export function getEventCoder(programId: string): BorshEventCoder | null {
   if (EVENT_CODER_CLIENTS[key]) return EVENT_CODER_CLIENTS[key];
   const contract = IDL_CONTRACT_ADDRESS_MAP[key];
   if (!contract) return null;
-  const json = IDL_DATA_DICT[contract];
+  const json = IDL_DATA_DICT[contract as keyof typeof IDL_DATA_DICT];
   if (!json) return null;
   // const idl: Idl = JSON.parse(json) as Idl;
-  const coder = new BorshCoder(json);
+  const coder = new BorshCoder(json as unknown as Idl);
   return coder.events;
 }
 
@@ -329,11 +329,11 @@ export function decodeInstructionParams(
   try {
     const decoded = instructionCoder.decode(base58Data, "base58");
 
-    if (!decoded?.name) return null;
+    if (!decoded?.name) return null as never;
 
     return decoded;
   } catch (e) {
-    return null;
+    return null as never;
   }
 }
 
@@ -362,8 +362,8 @@ export function decodeEventData(
 export function decodeInstruction(
   data: string,
   programId: string,
-): DecodedInstruction {
-  if (!programId || !data) return null;
+): DecodedInstruction | null {
+  if (!programId || !data) return null as never;
 
   const instructionCoder = getInstructionCoder(programId);
 
@@ -372,13 +372,17 @@ export function decodeInstruction(
 
     if (decoded) {
       return {
-        contract: IDL_CONTRACT_ADDRESS_MAP[programId],
+        contract: IDL_CONTRACT_ADDRESS_MAP[
+          programId as keyof typeof IDL_CONTRACT_ADDRESS_MAP
+        ] as string,
         name: "instruction",
         type: "instruction",
         params: decoded,
       };
     }
   }
+
+  return null;
 }
 
 export const decodeEvent = (
@@ -392,10 +396,15 @@ export const decodeEvent = (
 
     if (decoded) {
       return {
-        contract: IDL_CONTRACT_ADDRESS_MAP[programId],
+        contract: IDL_CONTRACT_ADDRESS_MAP[
+          programId as keyof typeof IDL_CONTRACT_ADDRESS_MAP
+        ] as string,
         name: decoded.name,
         type: "event",
-        parsed: decoded.data,
+        parsed: decoded.data as EventType<
+          (typeof IDL_DATA_DICT)["PUMP_FUN"],
+          "CreateEvent"
+        >,
       };
     }
   }
