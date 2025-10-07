@@ -1,7 +1,8 @@
+import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { createCrudApp, makeDb } from "@repo/core/src/index.js";
-import { schema } from "../solder.schema.js";
+import { createCrudApp, makeDb } from "@repo/core";
+import { schema, tables } from "../solder.schema.js";
 import { solderConfig } from "../solder.config.js";
 
 const app = new Hono();
@@ -11,13 +12,20 @@ app.get("/", (c) => {
 });
 
 // Create a db connection using the shared core helper and schema
-const db = makeDb(schema, solderConfig.db.connectionString);
+console.log("[APP] Creating database connection...");
+const db = makeDb(schema as any, solderConfig.db.connectionString);
+console.log("[APP] Database connection created");
 
 // Mount CRUD routes for all tables defined in the schema at their base paths
-const crud = createCrudApp(schema.tables, db);
+console.log(
+  "[APP] Tables to mount:",
+  tables.map((t) => ({ name: t.name, basePath: t.options.api?.basePath })),
+);
+const crud = createCrudApp(tables, db);
+console.log("[APP] Mounting CRUD app at root /");
 app.route("/", crud);
 
-const port = Number(process.env.PORT ?? 3000);
+const port = Number(process.env.PORT ?? 4000);
 serve(
   {
     fetch: app.fetch,

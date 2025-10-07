@@ -73,4 +73,5 @@ export const postsTable = posts.table;
 
 // Export the schema object for application use
 export const schema = built.schema;
+export const tables = built.tables;
 export type AppSchema = typeof schema;

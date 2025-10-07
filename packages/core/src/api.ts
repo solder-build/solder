@@ -34,7 +34,6 @@ function resolvePrimaryKey(options: {
 export function generateCrudRouter(tableDef: TableDefinition, db: DbLike) {
   const app = new Hono();
 
-  const basePath = normalizeBasePath(tableDef.options.api?.basePath ?? "/");
   const ops = {
     list: tableDef.options.api?.operations?.list ?? true,
     read: tableDef.options.api?.operations?.read ?? true,
@@ -43,61 +42,112 @@ export function generateCrudRouter(tableDef: TableDefinition, db: DbLike) {
     delete: tableDef.options.api?.operations?.delete ?? true,
   };
 
-  // LIST
+  console.log(`[CRUD] Setting up routes for table: ${tableDef.name}`);
+  console.log(`[CRUD] Operations enabled:`, ops);
+
+  // LIST - register at root "/" since router will be mounted at basePath
   if (ops.list) {
-    app.get(basePath, async (c) => {
-      const rows = await db.select().from(tableDef.table);
-      return c.json(rows);
+    console.log(`[CRUD] Registering GET / for ${tableDef.name}`);
+    app.get("/", async (c) => {
+      try {
+        console.log(`[CRUD] LIST request for ${tableDef.name}`);
+        const rows = await db.select().from(tableDef.table);
+        console.log(`[CRUD] Found ${rows.length} rows for ${tableDef.name}`);
+        return c.json(rows);
+      } catch (error) {
+        console.error(`[CRUD] Error listing ${tableDef.name}:`, error);
+        return c.json({ error: String(error) }, 500);
+      }
     });
   }
 
-  // CREATE
+  // CREATE - register at root "/" since router will be mounted at basePath
   if (ops.create) {
-    app.post(basePath, async (c) => {
-      const body = await c.req.json();
-      const inserted = await db.insert(tableDef.table).values(body).returning();
-      return c.json(inserted);
+    console.log(`[CRUD] Registering POST / for ${tableDef.name}`);
+    app.post("/", async (c) => {
+      try {
+        console.log(`[CRUD] CREATE request for ${tableDef.name}`);
+        const body = await c.req.json();
+        console.log(`[CRUD] Request body:`, body);
+        const inserted = await db
+          .insert(tableDef.table)
+          .values(body)
+          .returning();
+        console.log(`[CRUD] Inserted:`, inserted);
+        return c.json(inserted);
+      } catch (error) {
+        console.error(`[CRUD] Error creating ${tableDef.name}:`, error);
+        return c.json({ error: String(error) }, 500);
+      }
     });
   }
 
   // READ by id
   if (ops.read) {
-    app.get(`${basePath}:id`, async (c) => {
-      const id = c.req.param("id");
-      const pk = resolvePrimaryKey(tableDef.options);
-      const rows = await db
-        .select()
-        .from(tableDef.table)
-        .where(eq((tableDef.table as any)[pk], id));
-      return rows?.[0] ? c.json(rows[0]) : c.notFound();
+    console.log(`[CRUD] Registering GET /:id for ${tableDef.name}`);
+    app.get("/:id", async (c) => {
+      try {
+        const id = c.req.param("id");
+        console.log(`[CRUD] READ request for ${tableDef.name} with id: ${id}`);
+        const pk = resolvePrimaryKey(tableDef.options);
+        const rows = await db
+          .select()
+          .from(tableDef.table)
+          .where(eq((tableDef.table as any)[pk], id));
+        return rows?.[0] ? c.json(rows[0]) : c.notFound();
+      } catch (error) {
+        console.error(`[CRUD] Error reading ${tableDef.name}:`, error);
+        return c.json({ error: String(error) }, 500);
+      }
     });
   }
 
   // UPDATE by id
   if (ops.update) {
-    app.patch(`${basePath}:id`, async (c) => {
-      const id = c.req.param("id");
-      const body = await c.req.json();
-      const pk = resolvePrimaryKey(tableDef.options);
-      const updated = await db
-        .update(tableDef.table)
-        .set(body)
-        .where(eq((tableDef.table as any)[pk], id))
-        .returning();
-      return c.json(updated);
+    console.log(`[CRUD] Registering PATCH /:id for ${tableDef.name}`);
+    app.patch("/:id", async (c) => {
+      try {
+        const id = c.req.param("id");
+        const body = await c.req.json();
+        console.log(
+          `[CRUD] UPDATE request for ${tableDef.name} with id: ${id}`,
+          body,
+        );
+        const pk = resolvePrimaryKey(tableDef.options);
+        const updated = await db
+          .update(tableDef.table)
+          .set(body)
+          .where(eq((tableDef.table as any)[pk], id))
+          .returning();
+        console.log(`[CRUD] Updated:`, updated);
+        return c.json(updated);
+      } catch (error) {
+        console.error(`[CRUD] Error updating ${tableDef.name}:`, error);
+        return c.json({ error: String(error) }, 500);
+      }
     });
   }
 
   // DELETE by id
   if (ops.delete) {
-    app.delete(`${basePath}:id`, async (c) => {
-      const id = c.req.param("id");
-      const pk = resolvePrimaryKey(tableDef.options);
-      const deleted = await db
-        .delete(tableDef.table)
-        .where(eq((tableDef.table as any)[pk], id))
-        .returning();
-      return c.json(deleted);
+    console.log(`[CRUD] Registering DELETE /:id for ${tableDef.name}`);
+    app.delete("/:id", async (c) => {
+      try {
+        const id = c.req.param("id");
+        console.log(
+          `[CRUD] DELETE request for ${tableDef.name} with id: ${id}`,
+        );
+        const pk = resolvePrimaryKey(tableDef.options);
+        const deleted = await db
+          .delete(tableDef.table)
+          .where(eq((tableDef.table as any)[pk], id))
+          .returning();
+        console.log(`[CRUD] Deleted:`, deleted);
+        return c.json(deleted);
+      } catch (error) {
+        console.error(`[CRUD] Error deleting ${tableDef.name}:`, error);
+        return c.json({ error: String(error) }, 500);
+      }
     });
   }
 
@@ -105,13 +155,26 @@ export function generateCrudRouter(tableDef: TableDefinition, db: DbLike) {
 }
 
 export function generateCrudRouters(tables: TableDefinition[], db: DbLike) {
-  return tables
-    .filter((t) => t.options.api?.enabled ?? true)
-    .map((t) => ({
-      name: t.name,
-      basePath: normalizeBasePath(t.options.api?.basePath ?? "/"),
-      router: generateCrudRouter(t, db),
-    }));
+  console.log(`[CRUD] Generating routers for ${tables.length} tables`);
+  const routers = tables
+    .filter((t) => {
+      const enabled = t.options.api?.enabled ?? true;
+      console.log(`[CRUD] Table ${t.name}: API enabled = ${enabled}`);
+      return enabled;
+    })
+    .map((t) => {
+      const basePath = normalizeBasePath(t.options.api?.basePath ?? "/");
+      console.log(
+        `[CRUD] Creating router for ${t.name} at basePath: ${basePath}`,
+      );
+      return {
+        name: t.name,
+        basePath,
+        router: generateCrudRouter(t, db),
+      };
+    });
+  console.log(`[CRUD] Generated ${routers.length} routers`);
+  return routers;
 }
 
 export type CrudOperation = "list" | "read" | "create" | "update" | "delete";
@@ -135,7 +198,9 @@ export function buildCrudApiDefinition(
   for (const t of tables) {
     const enabled = t.options.api?.enabled ?? true;
     if (!enabled) continue;
-    const base = normalizeBasePath(t.options.api?.basePath ?? "/");
+    const basePath = t.options.api?.basePath ?? "/";
+    // Remove trailing slash for final path representation
+    const base = basePath.endsWith("/") ? basePath.slice(0, -1) : basePath;
     const pk = resolvePrimaryKey(t.options);
     const ops = {
       list: t.options.api?.operations?.list ?? true,
@@ -166,7 +231,7 @@ export function buildCrudApiDefinition(
         table: t.name,
         operation: "read",
         method: "GET",
-        path: `${base}:id`,
+        path: `${base}/:id`,
         primaryKey: pk,
       });
     if (ops.update)
@@ -174,7 +239,7 @@ export function buildCrudApiDefinition(
         table: t.name,
         operation: "update",
         method: "PATCH",
-        path: `${base}:id`,
+        path: `${base}/:id`,
         primaryKey: pk,
       });
     if (ops.delete)
@@ -182,7 +247,7 @@ export function buildCrudApiDefinition(
         table: t.name,
         operation: "delete",
         method: "DELETE",
-        path: `${base}:id`,
+        path: `${base}/:id`,
         primaryKey: pk,
       });
   }
@@ -190,11 +255,17 @@ export function buildCrudApiDefinition(
 }
 
 export function createCrudApp(tables: TableDefinition[], db: DbLike) {
+  console.log(`[CRUD] Creating CRUD app with ${tables.length} tables`);
   const app = new Hono();
   const routers = generateCrudRouters(tables, db);
   for (const r of routers) {
-    // Mount sub-router under its base path
-    app.route(r.basePath, r.router);
+    // Mount sub-router under its base path (remove trailing slash for Hono)
+    const mountPath = r.basePath.endsWith("/")
+      ? r.basePath.slice(0, -1)
+      : r.basePath;
+    console.log(`[CRUD] Mounting router for ${r.name} at: ${mountPath}`);
+    app.route(mountPath, r.router);
   }
+  console.log(`[CRUD] CRUD app created successfully`);
   return app;
 }
