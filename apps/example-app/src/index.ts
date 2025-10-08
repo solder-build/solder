@@ -5,7 +5,11 @@ import { createCrudApp, makeDb } from "@repo/core";
 import { schema, tables } from "../solder.schema.js";
 import { solderConfig } from "../solder.config.js";
 
+import { initializeIndexer, stopIndexer } from "./solder/indexer.js";
+
 const app = new Hono();
+
+const indexer = await initializeIndexer();
 
 app.get("/", (c) => {
   return c.text("Hello Hono!");
@@ -35,3 +39,15 @@ serve(
     console.log(`Server is running on http://localhost:${info.port}`);
   },
 );
+
+process.on("SIGINT", () => {
+  console.log("Received SIGINT. Shutting down server...");
+  stopIndexer(indexer);
+  process.exit(0);
+});
+
+process.on("SIGTERM", () => {
+  console.log("Received SIGTERM. Shutting down server...");
+  stopIndexer(indexer);
+  process.exit(0);
+});

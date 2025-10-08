@@ -17,7 +17,10 @@ export interface RegisteredProgram {
   idl: any; // Anchor IDL object
 }
 
-export interface EventHandler<TIdl extends Idl = Idl, TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>> {
+export interface EventHandler<
+  TIdl extends Idl = Idl,
+  TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
+> {
   id: string;
   programId: string;
   idl: TIdl;
@@ -25,7 +28,10 @@ export interface EventHandler<TIdl extends Idl = Idl, TEventName extends Extract
   handler: (event: IndexerEvent<TIdl, TEventName>) => Promise<void> | void;
 }
 
-export interface OnEventConfig<TIdl extends Idl = Idl, TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>> {
+export interface OnEventConfig<
+  TIdl extends Idl = Idl,
+  TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
+> {
   programId: string;
   idl: TIdl;
   eventName: string;
@@ -33,7 +39,9 @@ export interface OnEventConfig<TIdl extends Idl = Idl, TEventName extends Extrac
 }
 
 // Type to extract event names from IDL
-export type ExtractEventNames<TIdl extends Idl> = TIdl extends { events: infer TEvents }
+export type ExtractEventNames<TIdl extends Idl> = TIdl extends {
+  events: infer TEvents;
+}
   ? TEvents extends readonly any[]
     ? TEvents[number] extends { name: infer TName }
       ? TName
@@ -42,17 +50,22 @@ export type ExtractEventNames<TIdl extends Idl> = TIdl extends { events: infer T
   : never;
 
 // Type to get event data from IDL
-export type ExtractEventData<TIdl extends Idl, TEventName extends ExtractEventNames<TIdl>> = 
-  TIdl extends { events: infer TEvents }
-    ? TEvents extends readonly any[]
-      ? TEvents[number] extends { name: TEventName; fields: infer TFields }
-        ? TFields
-        : never
+export type ExtractEventData<
+  TIdl extends Idl,
+  TEventName extends ExtractEventNames<TIdl>,
+> = TIdl extends { events: infer TEvents }
+  ? TEvents extends readonly any[]
+    ? TEvents[number] extends { name: TEventName; fields: infer TFields }
+      ? TFields
       : never
-    : never;
+    : never
+  : never;
 
 // Type for the complete event object passed to handlers
-export interface IndexerEvent<TIdl extends Idl = Idl, TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>> {
+export interface IndexerEvent<
+  TIdl extends Idl = Idl,
+  TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
+> {
   name: string;
   contract: string;
   type: string;
@@ -94,13 +107,16 @@ export class Indexer {
   registerProgram(programId: string, eventTypes: string[], idl: any): void {
     // Validate that the IDL contains the requested event types
     this.validateEventTypes(idl, eventTypes);
-    
+
     this.registeredPrograms.set(programId, {
       programId,
       eventTypes,
-      idl
+      idl,
     });
-    console.log(`Registered program ${programId} with event types:`, eventTypes);
+    console.log(
+      `Registered program ${programId} with event types:`,
+      eventTypes,
+    );
   }
 
   /**
@@ -112,10 +128,14 @@ export class Indexer {
     }
 
     const availableEvents = idl.events.map((event: any) => event.name);
-    const missingEvents = eventTypes.filter(eventType => !availableEvents.includes(eventType));
-    
+    const missingEvents = eventTypes.filter(
+      (eventType) => !availableEvents.includes(eventType),
+    );
+
     if (missingEvents.length > 0) {
-      throw new Error(`IDL does not contain events: ${missingEvents.join(", ")}. Available events: ${availableEvents.join(", ")}`);
+      throw new Error(
+        `IDL does not contain events: ${missingEvents.join(", ")}. Available events: ${availableEvents.join(", ")}`,
+      );
     }
   }
 
@@ -139,37 +159,47 @@ export class Indexer {
    * @param config Configuration for the event handler
    * @returns A function to remove the event handler
    */
-  public async onEvent<TIdl extends Idl, TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>>(
-    config: OnEventConfig<TIdl, TEventName>
-  ): Promise<() => void> {
+  public async onEvent<
+    TIdl extends Idl,
+    TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
+  >(config: OnEventConfig<TIdl, TEventName>): Promise<() => void> {
     const handlerId = `${config.programId}-${config.eventName}-${Date.now()}`;
-    
+
     const eventHandler: EventHandler<TIdl, TEventName> = {
       id: handlerId,
       programId: config.programId,
       idl: config.idl,
       eventName: config.eventName,
-      handler: config.handler
+      handler: config.handler,
     };
 
     this.eventHandlers.set(handlerId, eventHandler);
-    
+
     if (!this.registeredPrograms.has(config.programId)) {
       this.registerProgram(config.programId, [config.eventName], config.idl);
     } else {
       // Add the event type to existing program if not already included
       const existingProgram = this.registeredPrograms.get(config.programId);
-      if (existingProgram && !existingProgram.eventTypes.includes(config.eventName)) {
+      if (
+        existingProgram &&
+        !existingProgram.eventTypes.includes(config.eventName)
+      ) {
         existingProgram.eventTypes.push(config.eventName);
-        console.log(`Added event type ${config.eventName} to existing program ${config.programId}`);
+        console.log(
+          `Added event type ${config.eventName} to existing program ${config.programId}`,
+        );
       }
     }
 
-    console.log(`Registered event handler for ${config.eventName} on program ${config.programId}`);
-    
+    console.log(
+      `Registered event handler for ${config.eventName} on program ${config.programId}`,
+    );
+
     return () => {
       this.eventHandlers.delete(handlerId);
-      console.log(`Removed event handler for ${config.eventName} on program ${config.programId}`);
+      console.log(
+        `Removed event handler for ${config.eventName} on program ${config.programId}`,
+      );
     };
   }
 
@@ -187,9 +217,11 @@ export class Indexer {
     const handlersToRemove = Array.from(this.eventHandlers.entries())
       .filter(([_, handler]) => handler.programId === programId)
       .map(([id, _]) => id);
-    
-    handlersToRemove.forEach(id => this.eventHandlers.delete(id));
-    console.log(`Removed ${handlersToRemove.length} event handlers for program ${programId}`);
+
+    handlersToRemove.forEach((id) => this.eventHandlers.delete(id));
+    console.log(
+      `Removed ${handlersToRemove.length} event handlers for program ${programId}`,
+    );
   }
 
   /**
@@ -242,13 +274,13 @@ export class Indexer {
     while (this.isRunning) {
       try {
         const latestSlot = await this.rpcClient.getSlot();
-        
+
         if (this.currentSlot <= latestSlot) {
           await this.processBlock(this.currentSlot);
           this.currentSlot++;
         } else {
           // Wait a bit before checking for new blocks
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await new Promise((resolve) => setTimeout(resolve, 1000));
         }
       } catch (error) {
         console.error(`Error processing block ${this.currentSlot}:`, error);
@@ -263,7 +295,7 @@ export class Indexer {
    */
   private async processBlock(slot: number): Promise<void> {
     const programIds = this.getRegisteredProgramIds();
-    
+
     if (programIds.length === 0) {
       console.log(`No programs registered, skipping block ${slot}`);
       return;
@@ -276,17 +308,19 @@ export class Indexer {
         programIdls.set(programId, program.idl);
       });
 
-      const blockData = await this.rpcClient.getBlockWithEvents(slot, { 
+      const blockData = await this.rpcClient.getBlockWithEvents(slot, {
         programIds,
-        programIdls
+        programIdls,
       });
-      
+
       if (!blockData) {
         console.log(`No block data found for slot ${slot}`);
         return;
       }
 
-      console.log(`Processing block ${slot} with ${blockData.transactions.length} transactions`);
+      console.log(
+        `Processing block ${slot} with ${blockData.transactions.length} transactions`,
+      );
 
       for (const transaction of blockData.transactions) {
         for (const event of transaction.events) {
@@ -295,7 +329,11 @@ export class Indexer {
       }
 
       if (this.cursorStore && blockData.block_hash) {
-        await this.cursorStore.upsertCursor(this.cursorKey, slot, blockData.block_hash);
+        await this.cursorStore.upsertCursor(
+          this.cursorKey,
+          slot,
+          blockData.block_hash,
+        );
       }
     } catch (error) {
       console.error(`Error fetching block ${slot}:`, error);
@@ -305,34 +343,46 @@ export class Indexer {
   /**
    * Handle a decoded event
    */
-  private async handleEvent(eventInfo: { index: number; programId: string; event: any }, transaction: any): Promise<void> {
+  private async handleEvent(
+    eventInfo: { index: number; programId: string; event: any },
+    transaction: any,
+  ): Promise<void> {
     const { programId, event } = eventInfo;
     const registeredProgram = this.registeredPrograms.get(programId);
-    
+
     if (!registeredProgram) {
       return;
     }
 
     // Check if this event type is registered for monitoring
     if (event.name && registeredProgram.eventTypes.includes(event.name)) {
-      console.log(`Event detected: ${event.name} from program ${programId}`);      
+      console.log(`Event detected: ${event.name} from program ${programId}`);
       // Parse event with the provided IDL for better type safety
       const parsedEvent = this.parseEventWithIdl(event, registeredProgram.idl);
-    
+
       // Call all registered event handlers for this contract and event
-      await this.callEventHandlers(programId, event.name, parsedEvent, transaction);
+      await this.callEventHandlers(
+        programId,
+        event.name,
+        parsedEvent,
+        transaction,
+      );
     }
   }
 
   /**
    * Call all registered event handlers for a specific program and event
    */
-  private async callEventHandlers(programId: string, eventName: string, parsedEvent: any, transaction: any): Promise<void> {
-    const relevantHandlers = Array.from(this.eventHandlers.values())
-      .filter(handler => 
-        handler.programId === programId && 
-        handler.eventName === eventName
-      );
+  private async callEventHandlers(
+    programId: string,
+    eventName: string,
+    parsedEvent: any,
+    transaction: any,
+  ): Promise<void> {
+    const relevantHandlers = Array.from(this.eventHandlers.values()).filter(
+      (handler) =>
+        handler.programId === programId && handler.eventName === eventName,
+    );
 
     for (const handler of relevantHandlers) {
       try {
@@ -340,12 +390,15 @@ export class Indexer {
         const eventData = {
           ...parsedEvent,
           programId,
-          eventName
+          eventName,
         };
 
         await handler.handler(eventData);
       } catch (error) {
-        console.error(`Error in event handler for ${eventName} on ${programId}:`, error);
+        console.error(
+          `Error in event handler for ${eventName} on ${programId}:`,
+          error,
+        );
       }
     }
   }
@@ -356,7 +409,13 @@ export class Indexer {
   private parseEventWithIdl(event: any, idl: Idl): any {
     try {
       // Find the event definition in the IDL
-      const eventDefinition = idl.events.find((e: IdlEvent) => e.name === event.name);
+      if (!idl.events) {
+        console.warn(`No events defined in IDL`);
+        return event.parsed;
+      }
+      const eventDefinition = idl.events.find(
+        (e: IdlEvent) => e.name === event.name,
+      );
       if (!eventDefinition) {
         console.warn(`Event definition not found in IDL for ${event.name}`);
         return event.parsed;
@@ -368,7 +427,7 @@ export class Indexer {
         contract: event.contract,
         type: event.type,
         parsed: event.parsed,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
     } catch (error) {
       console.error(`Error parsing event with IDL:`, error);
@@ -379,12 +438,17 @@ export class Indexer {
   /**
    * Get current indexer status
    */
-  getStatus(): { isRunning: boolean; currentSlot: number; registeredPrograms: number; eventHandlers: number } {
+  getStatus(): {
+    isRunning: boolean;
+    currentSlot: number;
+    registeredPrograms: number;
+    eventHandlers: number;
+  } {
     return {
       isRunning: this.isRunning,
       currentSlot: this.currentSlot,
       registeredPrograms: this.registeredPrograms.size,
-      eventHandlers: this.eventHandlers.size
+      eventHandlers: this.eventHandlers.size,
     };
   }
 }
