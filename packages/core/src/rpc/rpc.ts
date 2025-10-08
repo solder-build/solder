@@ -35,7 +35,12 @@ export class RpcClient {
   private readonly connection: Connection;
 
   constructor(options: RpcClientOptions = {}) {
-    const { endpoint, cluster = "devnet", commitment = "confirmed", httpHeaders } = options;
+    const {
+      endpoint,
+      cluster = "devnet",
+      commitment = "confirmed",
+      httpHeaders,
+    } = options;
     const url = endpoint ?? clusterApiUrl(cluster);
     this.connection = new Connection(url, { commitment, httpHeaders });
   }
@@ -76,7 +81,10 @@ export class RpcClient {
       instructions: InstructionInfo[];
     }>;
   } | null> {
-    const { block, blockHash, blockTime } = await fetchParsedBlock(this.connection, slot);
+    const { block, blockHash, blockTime } = await fetchParsedBlock(
+      this.connection,
+      slot,
+    );
     if (!block || !blockHash) return null;
     const transactions: Array<{
       block_number: number;
@@ -91,7 +99,7 @@ export class RpcClient {
       const signature = signatures[0];
       const instructions = hasMessage(txn.transaction)
         ? collectWith<InstructionInfo>(
-            { transaction: txn.transaction, meta: txn.meta },
+            { transaction: txn.transaction, meta: txn.meta! },
             filter,
             ({ index, programId, instr }) => {
               if (isParsedInstruction(instr)) {
@@ -104,12 +112,12 @@ export class RpcClient {
                 return decoded == null ? null : { index, programId, parsed: decoded };
               }
               return null;
-            }
+            },
           )
         : [];
 
-      if(!instructions.length) {
-        continue
+      if (!instructions.length) {
+        continue;
       }
 
       transactions.push({
@@ -147,7 +155,10 @@ export class RpcClient {
       events: EventInfo[];
     }>;
   } | null> {
-    const { block, blockHash, blockTime } = await fetchParsedBlock(this.connection, slot);
+    const { block, blockHash, blockTime } = await fetchParsedBlock(
+      this.connection,
+      slot,
+    );
     if (!block || !blockHash) return null;
     const transactions: Array<{
       block_number: number;
@@ -162,7 +173,7 @@ export class RpcClient {
       const signature = signatures[0];
       const events = hasMessage(txn.transaction)
         ? collectWith<EventInfo>(
-            { transaction: txn.transaction, meta: txn.meta },
+            { transaction: txn.transaction, meta: txn.meta! },
             filter,
             ({ index, programId, instr }) => {
               if (isPartiallyDecodedInstruction(instr)) {
@@ -171,7 +182,7 @@ export class RpcClient {
                 return decoded ? { index, programId, event: decoded } : null;
               }
               return null;
-            }
+            },
           )
         : [];
 
@@ -194,4 +205,3 @@ export class RpcClient {
     };
   }
 }
-

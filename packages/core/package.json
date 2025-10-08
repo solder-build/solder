@@ -5,15 +5,22 @@
   "license": "ISC",
   "author": "",
   "type": "commonjs",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "tsc --watch --project ./"
+    "dev": "tsc --watch --outDir dist --project ./",
+    "build": "tsc --outDir dist --project ./"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
     "@project-serum/anchor": "^0.26.0",
     "@solana/web3.js": "^1.98.4",
-    "pg": "^8.12.0"
+    "bs58": "^6.0.0",
+    "drizzle-orm": "^0.44.6",
+    "hono": "^4.9.8",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.5"
   }
 }

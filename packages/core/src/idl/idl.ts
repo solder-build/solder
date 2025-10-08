@@ -1,5 +1,10 @@
 import bs58 from "bs58";
-import { BorshCoder, Idl, BorshInstructionCoder, BorshEventCoder } from '@project-serum/anchor';
+import {
+  BorshCoder,
+  Idl,
+  BorshInstructionCoder,
+  BorshEventCoder,
+} from "@project-serum/anchor";
 import { utils } from "@coral-xyz/anchor";
 import { EventType } from "./idl-types";
 
@@ -43,29 +48,31 @@ export function getEventCoder(idl: any): BorshEventCoder {
 
 export function decodeInstructionParams(
   instructionCoder: BorshInstructionCoder,
-  base58Data: string
+  base58Data: string,
 ): {
   name: string;
-  data: unknown
+  data: unknown;
 } {
   try {
-    const decoded = instructionCoder.decode(
-      base58Data,
-      'base58',
-    );
-  
-    if(!decoded?.name) return null;
+    const decoded = instructionCoder.decode(base58Data, "base58");
+
+    if (!decoded?.name) return null as never;
 
     return decoded;
   } catch (e) {
-    return null;
+    return null as never;
   }
 }
 
-export function decodeEventData(eventCoder: BorshEventCoder, base58Data: string): { name: string; data: unknown } | null {
+export function decodeEventData(
+  eventCoder: BorshEventCoder,
+  base58Data: string,
+): { name: string; data: unknown } | null {
   try {
     const ixData = utils.bytes.bs58.decode(base58Data);
-    const eventData = utils.bytes.base64.encode(Buffer.from(new Uint8Array(ixData).slice(8)));
+    const eventData = utils.bytes.base64.encode(
+      Buffer.from(new Uint8Array(ixData).slice(8)),
+    );
 
     const decoded = eventCoder.decode(eventData);
 
@@ -74,7 +81,7 @@ export function decodeEventData(eventCoder: BorshEventCoder, base58Data: string)
       return { name: decoded.name, data: decoded.data };
     }
     return null;
-  } catch(e){
+  } catch (e) {
     return null;
   }
 }
@@ -122,4 +129,3 @@ export const decodeEvent = (data: string, programId: string, idl: Idl): DecodedE
 
   return null;
 }
-
