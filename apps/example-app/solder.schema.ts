@@ -6,70 +6,45 @@ import {
   varchar,
   integer,
   boolean,
+  bigint,
 } from "drizzle-orm/pg-core";
 
-// Example tables for the example-app. Adjust as needed.
-// users: simple user table
-const users = solderTable(
-  "users",
+// trades: TradeEvent data from pump.fun
+const trades = solderTable(
+  "trades",
   {
     id: serial("id").primaryKey(),
-    email: varchar("email", { length: 255 }).notNull(),
-    name: varchar("name", { length: 255 }),
+    mint: varchar("mint", { length: 44 }).notNull(),
+    solAmount: text("sol_amount").notNull(),
+    tokenAmount: text("token_amount").notNull(),
+    isBuy: boolean("is_buy").notNull(),
+    user: varchar("user", { length: 44 }).notNull(),
+    virtualSolReserves: text("virtual_sol_reserves").notNull(),
+    virtualTokenReserves: text("virtual_token_reserves").notNull(),
+    timestamp: timestamp("timestamp", { mode: "date" }).notNull(),
     createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
-    updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow().notNull(),
   },
   {
     primaryKey: "id",
     api: {
-      basePath: "/users",
+      basePath: "/trades",
       enabled: true,
       operations: {
         list: true,
         read: true,
         create: true,
-        update: true,
-        delete: true,
+        update: false,
+        delete: false,
       },
     },
-    description: "Users of the system",
+    description: "Trade events from pump.fun",
   },
 );
 
-// posts: authored by users
-const posts = solderTable(
-  "posts",
-  {
-    id: serial("id").primaryKey(),
-    userId: integer("user_id").notNull(),
-    title: varchar("title", { length: 255 }).notNull(),
-    content: text("content"),
-    published: boolean("published").default(false).notNull(),
-    createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
-    updatedAt: timestamp("updated_at", { mode: "date" }).defaultNow().notNull(),
-  },
-  {
-    primaryKey: "id",
-    api: {
-      basePath: "/posts",
-      enabled: true,
-      operations: {
-        list: true,
-        read: true,
-        create: true,
-        update: true,
-        delete: true,
-      },
-    },
-    description: "Posts authored by users",
-  },
-);
-
-const built = solderSchema(users, posts);
+const built = solderSchema(trades);
 
 // Export individual tables for Drizzle Kit
-export const usersTable = users.table;
-export const postsTable = posts.table;
+export const tradesTable = trades.table;
 
 // Export the schema object for application use
 export const schema = built.schema;

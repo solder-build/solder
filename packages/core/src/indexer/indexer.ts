@@ -3,6 +3,8 @@ import { RpcClient } from "../rpc/rpc";
 import { EventType, IdlEvent } from "../idl/idl-types";
 import { CursorStore } from "./db";
 import { Idl } from "@project-serum/anchor";
+import { drizzle, NodePgDatabase } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 
 export interface IndexerConfig {
   startBlock: number;
@@ -25,7 +27,10 @@ export interface EventHandler<
   programId: string;
   idl: TIdl;
   eventName: string;
-  handler: (event: IndexerEvent<TIdl, TEventName>) => Promise<void> | void;
+  handler: (
+    event: IndexerEvent<TIdl, TEventName>,
+    db: NodePgDatabase<Record<string, never>> & { $client: Pool },
+  ) => Promise<void> | void;
 }
 
 export interface OnEventConfig<
@@ -35,7 +40,10 @@ export interface OnEventConfig<
   programId: string;
   idl: TIdl;
   eventName: string;
-  handler: (event: IndexerEvent<TIdl, TEventName>) => Promise<void> | void;
+  handler: (
+    event: IndexerEvent<TIdl, TEventName>,
+    db: NodePgDatabase<Record<string, never>> & { $client: Pool },
+  ) => Promise<void> | void;
 }
 
 // Type to extract event names from IDL
@@ -88,13 +96,20 @@ export class Indexer {
   private currentSlot: number;
   private cursorStore?: CursorStore;
   private cursorKey: string;
+  private db:
+    | (NodePgDatabase<Record<string, never>> & { $client: Pool })
+    | null = null;
 
   constructor(config: IndexerConfig) {
     this.rpcClient = new RpcClient({ endpoint: config.rpcUrl });
     this.currentSlot = config.startBlock;
     this.cursorKey = config.cursorKey ?? "default";
     if (config.databaseUrl) {
+      const pool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+      });
       this.cursorStore = new CursorStore(config.databaseUrl);
+      this.db = drizzle({ client: pool });
     }
   }
 
@@ -392,8 +407,10 @@ export class Indexer {
           programId,
           eventName,
         };
-
-        await handler.handler(eventData);
+        if (!this.db) {
+          throw new Error("Database not initialized");
+        }
+        await handler.handler(eventData, this.db);
       } catch (error) {
         console.error(
           `Error in event handler for ${eventName} on ${programId}:`,
