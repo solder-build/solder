@@ -1,15 +1,37 @@
-import { serve } from '@hono/node-server'
-import { Hono } from 'hono'
+import "dotenv/config";
+import { serve } from "@hono/node-server";
+import { Hono } from "hono";
+import { createCrudApp, makeDb } from "@repo/core";
+import { schema, tables } from "../solder.schema.js";
+import { solderConfig } from "../solder.config.js";
 
-const app = new Hono()
+const app = new Hono();
 
-app.get('/', (c) => {
-  return c.text('Hello Hono!')
-})
+app.get("/", (c) => {
+  return c.text("Hello Hono!");
+});
 
-serve({
-  fetch: app.fetch,
-  port: 3000
-}, (info) => {
-  console.log(`Server is running on http://localhost:${info.port}`)
-})
+// Create a db connection using the shared core helper and schema
+console.log("[APP] Creating database connection...");
+const db = makeDb(schema as any, solderConfig.db.connectionString);
+console.log("[APP] Database connection created");
+
+// Mount CRUD routes for all tables defined in the schema at their base paths
+console.log(
+  "[APP] Tables to mount:",
+  tables.map((t) => ({ name: t.name, basePath: t.options.api?.basePath })),
+);
+const crud = createCrudApp(tables, db);
+console.log("[APP] Mounting CRUD app at root /");
+app.route("/", crud);
+
+const port = Number(process.env.PORT ?? 4000);
+serve(
+  {
+    fetch: app.fetch,
+    port,
+  },
+  (info) => {
+    console.log(`Server is running on http://localhost:${info.port}`);
+  },
+);
