@@ -1,1 +1,10 @@
-export { Indexer, IndexerConfig, RegisteredProgram } from "./indexer.js";
+export { 
+  Indexer, 
+  IndexerConfig, 
+  RegisteredProgram, 
+  EventHandler, 
+  OnEventConfig,
+  ExtractEventNames,
+  ExtractEventData,
+  IndexerEvent
+} from "./indexer";

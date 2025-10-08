@@ -1,3 +1,4 @@
-export * from "./rpc/index.js";
-export * from "./idl/idl.js";
-export * from "./idl/types.js";
+export * from "./rpc/index";
+export * from "./idl/idl";
+export * from "./idl/idl-types";
+export * from "./indexer/index";
