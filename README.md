@@ -2,7 +2,7 @@
 
 # Solder
 
-<img width="740" alt="Solder architecture diagram" src="./assets/logo.png" />
+<img width="120" alt="Solder architecture diagram" src="./assets/logo.png" />
 
 **A modern Solana backend framework for shipping web2 backends faster**
 
