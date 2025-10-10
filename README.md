@@ -323,25 +323,9 @@ export const initializeIndexer = async () => {
 
 Solder is built on a modern, modular architecture that combines several best-in-class technologies:
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                     Your Application                     │
-├─────────────────────────────────────────────────────────┤
-│  ┌─────────────────┐           ┌──────────────────┐    │
-│  │  Solder Schema  │           │  Solder Indexer  │    │
-│  │   (ORM Layer)   │           │  (Event Monitor) │    │
-│  └────────┬────────┘           └────────┬─────────┘    │
-│           │                              │              │
-│           ▼                              ▼              │
-│  ┌─────────────────┐           ┌──────────────────┐    │
-│  │   Auto-gen API  │◄──────────┤   RPC Client     │    │
-│  │   (Hono/REST)   │           │                  │    │
-│  └────────┬────────┘           └────────┬─────────┘    │
-├───────────┼─────────────────────────────┼──────────────┤
-│           ▼                              ▼              │
-│     PostgreSQL                   Solana Network        │
-└─────────────────────────────────────────────────────────┘
-```
+<p align="center">
+  <img width="700" alt="Solder Architecture" src="./assets/architecture.png" />
+</p>
 
 ### Key Components
 
