@@ -1,4 +1,4 @@
-import { Indexer, type IndexerEvent } from "@repo/core";
+import { Indexer, type IndexerEvent } from "solder";
 import { type Idl } from "@coral-xyz/anchor";
 import pumpFunIdl from "../idls/pump-fun.json" with { type: "json" };
 import { tradesTable } from "../../solder.schema.js";

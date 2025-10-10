@@ -1,4 +1,4 @@
-import { solderSchema, solderTable } from "@repo/core";
+import { solderSchema, solderTable } from "solder";
 import {
   serial,
   text,

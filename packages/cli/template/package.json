@@ -12,7 +12,7 @@
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
     "@hono/node-server": "^1.19.4",
-    "@repo/core": "workspace:*",
+    "solder": "workspace:*",
     "@solana/web3.js": "^1.95.2",
     "bn": "^1.0.5",
     "drizzle-orm": "^0.44.6",

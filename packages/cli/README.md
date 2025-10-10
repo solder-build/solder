@@ -69,7 +69,7 @@ pnpm run dev
 
 The generated project includes:
 
-- Solana indexer setup with @repo/core
+- Solana indexer setup with solder
 - Hono web server with auto-generated CRUD API
 - Drizzle ORM for database management
 - Example pump.fun trade event indexer
@@ -79,4 +79,3 @@ The generated project includes:
 ## License
 
 MIT
-
