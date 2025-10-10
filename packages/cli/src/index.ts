@@ -10,17 +10,35 @@ import ora from "ora";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Get the template directory (example-app)
+// Get the template directory
 const getTemplatePath = () => {
+  // When running from NPX, template is bundled with the package
+  // From packages/cli/dist/index.js -> ../template
+  const bundledTemplate = path.join(__dirname, "..", "template");
+
+  // Check if bundled template exists (NPX/NPM install)
+  if (fs.existsSync(bundledTemplate)) {
+    return bundledTemplate;
+  }
+
+  // Fallback to monorepo structure (development)
   // From packages/cli/dist/index.js -> go up to workspace root -> apps/example-app
   const cliRoot = path.join(__dirname, "..", "..", "..");
-  return path.join(cliRoot, "apps", "example-app");
+  const monoRepoTemplate = path.join(cliRoot, "apps", "example-app");
+
+  if (fs.existsSync(monoRepoTemplate)) {
+    return monoRepoTemplate;
+  }
+
+  // If neither exists, return bundled path and let error handling catch it
+  return bundledTemplate;
 };
 
 interface CliAnswers {
   projectName: string;
   targetPath: string;
   confirmPath: boolean;
+  installDeps: boolean;
 }
 
 async function main() {
@@ -51,6 +69,12 @@ async function main() {
           `Create project at ${chalk.cyan(path.resolve(prev))}?`,
         initial: true,
       },
+      {
+        type: "confirm",
+        name: "installDeps",
+        message: "Install dependencies with pnpm?",
+        initial: true,
+      },
     ],
     {
       onCancel: () => {
@@ -65,7 +89,7 @@ async function main() {
     process.exit(0);
   }
 
-  const { projectName, targetPath } = answers as CliAnswers;
+  const { projectName, targetPath, installDeps } = answers as CliAnswers;
   const resolvedTargetPath = path.resolve(targetPath);
   const templatePath = getTemplatePath();
 
@@ -130,6 +154,16 @@ async function main() {
     packageJson.name = projectName;
     await fs.writeJson(packageJsonPath, packageJson, { spaces: 2 });
 
+    // Rename gitignore file (template has it without the dot to avoid npm issues)
+    const gitignoreTemplatePath = path.join(templatePath, "gitignore");
+    if (fs.existsSync(gitignoreTemplatePath)) {
+      spinner.text = "Setting up .gitignore...";
+      await fs.copy(
+        gitignoreTemplatePath,
+        path.join(resolvedTargetPath, ".gitignore"),
+      );
+    }
+
     // Create a .env.example file
     spinner.text = "Creating .env.example...";
     const envExample = `# Database Configuration
@@ -148,12 +182,49 @@ PORT=4000
 
     spinner.succeed(chalk.green("✓ Project created successfully!"));
 
+    // Install dependencies if requested
+    if (installDeps) {
+      spinner.start("Installing dependencies with pnpm...");
+      try {
+        const { spawn } = await import("child_process");
+        await new Promise<void>((resolve, reject) => {
+          const install = spawn("pnpm", ["install"], {
+            cwd: resolvedTargetPath,
+            stdio: "inherit",
+            shell: true,
+          });
+
+          install.on("close", (code) => {
+            if (code === 0) {
+              resolve();
+            } else {
+              reject(new Error(`pnpm install exited with code ${code}`));
+            }
+          });
+
+          install.on("error", (err) => {
+            reject(err);
+          });
+        });
+        spinner.succeed(chalk.green("✓ Dependencies installed!"));
+      } catch (error) {
+        spinner.fail(chalk.yellow("Failed to install dependencies"));
+        console.log(
+          chalk.yellow(
+            "  You can install them manually by running: pnpm install",
+          ),
+        );
+      }
+    }
+
     // Print next steps
     console.log(chalk.bold("\n📝 Next steps:\n"));
     console.log(chalk.cyan(`  cd ${targetPath}`));
     console.log(chalk.cyan("  cp .env.example .env"));
     console.log(chalk.cyan("  # Update .env with your configuration"));
-    console.log(chalk.cyan("  pnpm install"));
+    if (!installDeps) {
+      console.log(chalk.cyan("  pnpm install"));
+    }
     console.log(chalk.cyan("  pnpm run generate"));
     console.log(chalk.cyan("  pnpm run push"));
     console.log(chalk.cyan("  pnpm run dev"));
