@@ -1,17 +1,7 @@
-import {
-  Connection,
-  Commitment,
-  Cluster,
-  clusterApiUrl,
-  ParsedTransaction,
-} from "@solana/web3.js";
-import { DecodedEvent, decodeEvent, decodeInstruction } from "../idl/idl.js";
-import {
-  collectWith,
-  fetchParsedBlock,
-  isParsedInstruction,
-  isPartiallyDecodedInstruction,
-} from "../utils/block.js";
+import { Connection, Commitment, Cluster, clusterApiUrl, ParsedTransaction } from "@solana/web3.js";
+import { DecodedEvent, decodeEvent, decodeInstruction } from "../idl/idl";
+import { collectWith, fetchParsedBlock, isParsedInstruction, isPartiallyDecodedInstruction } from "../utils/block";
+import { BorshCoder } from "@project-serum/anchor";
 
 export type RpcClientOptions = {
   endpoint?: string;
@@ -33,7 +23,7 @@ type EventInfo = {
 };
 
 // For type narrowing on transactions array
-type ParsedBlockTx = import("../utils/block.js").ParsedBlockTx;
+type ParsedBlockTx = import("../utils/block").ParsedBlockTx;
 
 function hasMessage(tx: ParsedBlockTx["transaction"]): tx is ParsedTransaction {
   return (tx as ParsedTransaction).message !== undefined;
@@ -75,7 +65,10 @@ export class RpcClient {
 
   async getBlockWithInstructions(
     slot: number,
-    filter: { programIds: string[] },
+    filter: { 
+      programIds: string[];
+      programIdls?: Map<string, any>;
+    }
   ): Promise<{
     block_number: number;
     block_hash: string;
@@ -113,10 +106,10 @@ export class RpcClient {
                 return { index, programId, parsed: instr.parsed };
               }
               if (isPartiallyDecodedInstruction(instr)) {
-                const decoded = decodeInstruction(instr.data, programId);
-                return decoded == null
-                  ? null
-                  : { index, programId, parsed: decoded };
+                // Use program-specific IDL if provided
+                const programIdl = filter.programIdls?.get(programId);
+                const decoded = decodeInstruction(instr.data, programId, programIdl);
+                return decoded == null ? null : { index, programId, parsed: decoded };
               }
               return null;
             },
@@ -146,7 +139,10 @@ export class RpcClient {
 
   async getBlockWithEvents(
     slot: number,
-    filter: { programIds: string[] },
+    filter: { 
+      programIds: string[];
+      programIdls?: Map<string, any>;
+    }
   ): Promise<{
     block_number: number;
     block_hash: string;
@@ -181,7 +177,8 @@ export class RpcClient {
             filter,
             ({ index, programId, instr }) => {
               if (isPartiallyDecodedInstruction(instr)) {
-                const decoded = decodeEvent(instr.data, programId);
+                const programIdl = filter.programIdls?.get(programId);
+                const decoded = decodeEvent(instr.data, programId, programIdl);
                 return decoded ? { index, programId, event: decoded } : null;
               }
               return null;

@@ -1,15 +1,18 @@
 import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { createCrudApp, makeDb } from "@repo/core";
+import { createCrudApp, Indexer, makeDb } from "@repo/core";
 import { schema, tables } from "../solder.schema.js";
 import { solderConfig } from "../solder.config.js";
+import { initializeIndexer, stopIndexer } from "./solder/indexer.js";
 
 const app = new Hono();
 
 app.get("/", (c) => {
   return c.text("Hello Hono!");
 });
+
+let indexer: Indexer | null = null;
 
 // Create a db connection using the shared core helper and schema
 console.log("[APP] Creating database connection...");
@@ -31,7 +34,24 @@ serve(
     fetch: app.fetch,
     port,
   },
-  (info) => {
+  async (info) => {
     console.log(`Server is running on http://localhost:${info.port}`);
+    indexer = await initializeIndexer();
   },
 );
+
+process.on("SIGINT", () => {
+  console.log("Received SIGINT. Shutting down server...");
+  if (indexer) {
+    stopIndexer(indexer);
+  }
+  process.exit(0);
+});
+
+process.on("SIGTERM", () => {
+  console.log("Received SIGTERM. Shutting down server...");
+  if (indexer) {
+    stopIndexer(indexer);
+  }
+  process.exit(0);
+});
