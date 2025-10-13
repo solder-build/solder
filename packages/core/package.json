@@ -1,11 +1,26 @@
 {
-  "name": "@repo/core",
-  "version": "0.0.0",
-  "description": "Solder Core Package",
+  "name": "solder",
+  "version": "0.1.0",
+  "description": "A modern Solana indexer framework with built-in database support and auto-generated APIs",
   "license": "ISC",
   "author": "",
   "type": "commonjs",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "solana",
+    "indexer",
+    "blockchain",
+    "web3",
+    "database",
+    "api",
+    "hono",
+    "drizzle"
+  ],
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsc --watch --outDir dist --project ./",

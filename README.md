@@ -1,135 +1,390 @@
-# Turborepo starter
+<div align="center">
 
-This Turborepo starter is maintained by the Turborepo core team.
+# Solder
 
-## Using this example
+<img width="120" alt="Solder architecture diagram" src="./assets/logo.png" />
 
-Run the following command:
+**A modern Solana backend framework for shipping web2 backends faster**
 
-```sh
-npx create-turbo@latest
+_Build production-ready Solana indexers with auto-generated APIs in minutes, not days._
+
+[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
+
+[Website](https://solder.build) • [Documentation](https://solder.gitbook.io/solder-documentation) • [Examples](./apps/example-app)
+
+**This project is currently in active development.** APIs, features, and documentation may change without notice. Use at your own risk.
+
+</div>
+
+---
+
+## What is Solder?
+
+Solder is a comprehensive Solana backend framework that abstracts away the complexity of building blockchain indexers and APIs. It provides:
+
+- 🚀 **Indexer Abstraction** - Monitor Solana programs and events with minimal configuration
+- 🗄️ **Built-in Database Support** - Integrated Drizzle ORM with PostgreSQL
+- 🔌 **Auto-generated APIs** - RESTful CRUD endpoints created automatically from your schema
+- 📝 **Type-safe** - Full TypeScript support with IDL-based type inference
+- ⚡ **Fast Development** - Go from zero to production-ready backend in minutes
+
+## Quick Start
+
+### Option 1: Using the CLI (Recommended)
+
+The fastest way to get started with Solder is using the `create-solder-app` CLI:
+
+```bash
+npx create-solder-app
 ```
 
-## What's inside?
+The CLI will:
 
-This Turborepo includes the following packages/apps:
+1. Prompt you for a project name
+2. Ask where you want to create the project
+3. Ask if you want to install dependencies automatically
+4. Set up a complete Solder project with example code
 
-### Apps and Packages
+**After creation:**
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+```bash
+cd your-project-name
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
+# Copy and configure environment variables
+cp .env.example .env
+# Update .env with your RPC URL and database connection string
 
-### Utilities
+# Install dependencies (if you skipped during setup)
+pnpm install
 
-This Turborepo has some additional tools already setup for you:
+# Generate database schema
+pnpm run generate
 
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
+# Push schema to database
+pnpm run push
 
-### Build
-
-To build all apps and packages, run the following command:
-
-```
-cd my-turborepo
-
-# With [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation) installed (recommended)
-turbo build
-
-# Without [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation), use your package manager
-npx turbo build
-yarn dlx turbo build
-pnpm exec turbo build
+# Start the indexer and API server
+pnpm run dev
 ```
 
-You can build a specific package by using a [filter](https://turborepo.com/docs/crafting-your-repository/running-tasks#using-filters):
+### Option 2: Clone the Example App
 
-```
-# With [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation) installed (recommended)
-turbo build --filter=docs
+Clone the repository and navigate to the example application:
 
-# Without [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation), use your package manager
-npx turbo build --filter=docs
-yarn exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
-```
+```bash
+git clone https://github.com/your-org/solder.git
+cd solder/apps/example-app
 
-### Develop
+# Install dependencies
+pnpm install
 
-To develop all apps and packages, run the following command:
+# Configure environment
+cp .env.example .env
+# Update .env with your configuration
 
-```
-cd my-turborepo
+# Generate and push database schema
+pnpm run generate
+pnpm run push
 
-# With [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation) installed (recommended)
-turbo dev
-
-# Without [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation), use your package manager
-npx turbo dev
-yarn exec turbo dev
-pnpm exec turbo dev
+# Start the server
+pnpm run dev
 ```
 
-You can develop a specific package by using a [filter](https://turborepo.com/docs/crafting-your-repository/running-tasks#using-filters):
+### Requirements
 
+- Node.js >= 18
+- PostgreSQL database
+- Solana RPC endpoint (optional: defaults to public mainnet RPC)
+
+---
+
+## `solderTable` Documentation
+
+The `solderTable` function is the core building block for defining your database schema with Solder. It extends Drizzle ORM tables with additional metadata for automatic API generation.
+
+### Basic Usage
+
+```typescript
+import { solderTable } from "solder";
+import { serial, varchar, timestamp, boolean, text } from "drizzle-orm/pg-core";
+
+const trades = solderTable(
+  "trades", // Table name
+  {
+    // Column definitions (standard Drizzle ORM)
+    id: serial("id").primaryKey(),
+    mint: varchar("mint", { length: 44 }).notNull(),
+    user: varchar("user", { length: 44 }).notNull(),
+    isBuy: boolean("is_buy").notNull(),
+    timestamp: timestamp("timestamp", { mode: "date" }).notNull(),
+    createdAt: timestamp("created_at", { mode: "date" }).defaultNow().notNull(),
+  },
+  {
+    // Solder-specific options
+    primaryKey: "id",
+    api: {
+      basePath: "/trades",
+      enabled: true,
+      operations: {
+        list: true, // GET /trades
+        read: true, // GET /trades/:id
+        create: true, // POST /trades
+        update: false, // PUT /trades/:id (disabled)
+        delete: false, // DELETE /trades/:id (disabled)
+      },
+    },
+    description: "Trade events from pump.fun",
+  },
+);
 ```
-# With [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation) installed (recommended)
-turbo dev --filter=web
 
-# Without [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation), use your package manager
-npx turbo dev --filter=web
-yarn exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
+### Options
+
+#### Table Options (Third Parameter)
+
+| Option        | Type     | Required | Description                         |
+| ------------- | -------- | -------- | ----------------------------------- |
+| `primaryKey`  | `string` | Yes      | Name of the primary key column      |
+| `api`         | `object` | No       | API generation configuration        |
+| `description` | `string` | No       | Table description for documentation |
+
+#### API Configuration
+
+| Option              | Type      | Default          | Description                                  |
+| ------------------- | --------- | ---------------- | -------------------------------------------- |
+| `enabled`           | `boolean` | `true`           | Enable/disable API generation for this table |
+| `basePath`          | `string`  | `"/{tableName}"` | Base path for API endpoints                  |
+| `operations.list`   | `boolean` | `true`           | Enable GET /basePath (list all)              |
+| `operations.read`   | `boolean` | `true`           | Enable GET /basePath/:id (read one)          |
+| `operations.create` | `boolean` | `true`           | Enable POST /basePath (create)               |
+| `operations.update` | `boolean` | `true`           | Enable PUT /basePath/:id (update)            |
+| `operations.delete` | `boolean` | `true`           | Enable DELETE /basePath/:id (delete)         |
+
+### Building the Schema
+
+After defining your tables, use `solderSchema` to build the final schema:
+
+```typescript
+import { solderSchema } from "solder";
+
+const built = solderSchema(trades, users, tokens);
+
+// Export for Drizzle Kit
+export const tradesTable = trades.table;
+export const usersTable = users.table;
+
+// Export for application use
+export const schema = built.schema;
+export const tables = built.tables;
+export type AppSchema = typeof schema;
 ```
 
-### Remote Caching
+---
 
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
+## `Indexer` Instance Documentation
 
-Turborepo can use a technique known as [Remote Caching](https://turborepo.com/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
+The `Indexer` class is the core component for monitoring Solana blockchain events and processing them into your database.
 
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
+### Creating an Indexer
 
-```
-cd my-turborepo
+```typescript
+import { Indexer } from "solder";
 
-# With [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation) installed (recommended)
-turbo login
-
-# Without [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation), use your package manager
-npx turbo login
-yarn exec turbo login
-pnpm exec turbo login
+const indexer = new Indexer({
+  startBlock: 300000000, // Starting slot number
+  rpcUrl: process.env.RPC_URL, // Solana RPC endpoint
+  databaseUrl: process.env.DATABASE_URL, // PostgreSQL connection string
+  cursorKey: "my-indexer", // Unique identifier for this indexer
+});
 ```
 
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
+### Configuration Options
 
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
+| Option        | Type     | Required | Description                                             |
+| ------------- | -------- | -------- | ------------------------------------------------------- |
+| `startBlock`  | `number` | Yes      | Slot number to start indexing from                      |
+| `rpcUrl`      | `string` | Yes      | Solana RPC endpoint URL                                 |
+| `databaseUrl` | `string` | No       | PostgreSQL connection string (required for persistence) |
+| `cursorKey`   | `string` | No       | Unique key for cursor storage (defaults to "default")   |
 
+### Registering Event Handlers
+
+Use the `onEvent` method to register handlers for specific program events:
+
+```typescript
+import { type Idl } from "@coral-xyz/anchor";
+import pumpFunIdl from "./idls/pump-fun.json";
+
+await indexer.onEvent({
+  programId: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+  idl: pumpFunIdl as Idl,
+  eventName: "TradeEvent",
+  handler: async (event, db) => {
+    // Process the event
+    await db.insert(tradesTable).values({
+      mint: event.parsed.mint.toBase58(),
+      user: event.parsed.user.toBase58(),
+      isBuy: event.parsed.isBuy,
+      timestamp: new Date(Number(event.parsed.timestamp) * 1000),
+    });
+  },
+});
 ```
-# With [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation) installed (recommended)
-turbo link
 
-# Without [global `turbo`](https://turborepo.com/docs/getting-started/installation#global-installation), use your package manager
-npx turbo link
-yarn exec turbo link
-pnpm exec turbo link
+### Event Handler Signature
+
+```typescript
+type EventHandler<TIdl, TEventName> = (
+  event: IndexerEvent<TIdl, TEventName>,
+  db: NodePgDatabase,
+) => Promise<void> | void;
+
+interface IndexerEvent {
+  name: string; // Event name
+  contract: string; // Program ID
+  type: string; // Event type
+  parsed: any; // Parsed event data (typed based on IDL)
+  timestamp: string; // Event timestamp
+  transaction: {
+    hash: string; // Transaction signature
+    slot: number; // Slot number
+    blockTime: number; // Block timestamp
+  };
+  programId: string; // Program ID
+  eventName: string; // Event name
+}
 ```
 
-## Useful Links
+### Starting and Stopping
 
-Learn more about the power of Turborepo:
+```typescript
+// Start the indexer
+await indexer.start();
 
-- [Tasks](https://turborepo.com/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.com/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.com/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.com/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.com/docs/reference/configuration)
-- [CLI Usage](https://turborepo.com/docs/reference/command-line-reference)
+// Stop the indexer
+indexer.stop();
+```
+
+### Getting Status
+
+```typescript
+const status = indexer.getStatus();
+console.log(status);
+// {
+//   isRunning: true,
+//   currentSlot: 300000042,
+//   registeredPrograms: 1,
+//   eventHandlers: 1
+// }
+```
+
+### Complete Example
+
+```typescript
+import { Indexer } from "solder";
+import { tradesTable } from "./schema";
+import pumpFunIdl from "./idls/pump-fun.json";
+
+export const initializeIndexer = async () => {
+  const indexer = new Indexer({
+    startBlock: 300000000,
+    rpcUrl: process.env.RPC_URL || "https://api.mainnet-beta.solana.com",
+    databaseUrl: process.env.DATABASE_URL,
+    cursorKey: "pump-fun-indexer",
+  });
+
+  await indexer.onEvent({
+    programId: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+    idl: pumpFunIdl,
+    eventName: "TradeEvent",
+    handler: async (event, db) => {
+      await db.insert(tradesTable).values({
+        mint: event.parsed.mint.toBase58(),
+        solAmount: event.parsed.solAmount.toString(),
+        tokenAmount: event.parsed.tokenAmount.toString(),
+        isBuy: event.parsed.isBuy,
+        user: event.parsed.user.toBase58(),
+        virtualSolReserves: event.parsed.virtualSolReserves.toString(),
+        virtualTokenReserves: event.parsed.virtualTokenReserves.toString(),
+        timestamp: new Date(Number(event.parsed.timestamp) * 1000),
+      });
+    },
+  });
+
+  await indexer.start();
+  return indexer;
+};
+```
+
+---
+
+## Architecture
+
+Solder is built on a modern, modular architecture that combines several best-in-class technologies:
+
+<p align="center">
+  <img width="700" alt="Solder Architecture" src="./assets/architecture.png" />
+</p>
+
+### Key Components
+
+1. **Indexer Layer** - Monitors Solana blockchain for program events
+2. **Schema Layer** - Type-safe database schema with Drizzle ORM
+3. **API Layer** - Auto-generated RESTful APIs with Hono
+4. **RPC Layer** - Efficient Solana RPC client for block and transaction data
+
+For a detailed explanation of Solder's architecture, features, and design philosophy, please visit our comprehensive documentation:
+
+**📚 [Solder Documentation](https://solder.gitbook.io/solder-documentation)**
+
+---
+
+## What's Inside This Monorepo?
+
+This Turborepo includes the following packages and apps:
+
+### Apps
+
+- **`apps/docs`** - Documentation website (Next.js)
+- **`apps/web`** - Marketing website (Next.js)
+- **`apps/example-app`** - Example Solder application indexing pump.fun trades
+
+### Packages
+
+- **`packages/core`** - Core Solder framework (`solder`)
+- **`packages/cli`** - CLI for scaffolding projects (`create-solder-app`)
+- **`@repo/ui`** - Shared React component library
+- **`@repo/eslint-config`** - Shared ESLint configurations
+- **`@repo/typescript-config`** - Shared TypeScript configurations
+
+### Development Commands
+
+```bash
+# Build all packages
+pnpm build
+
+# Run all apps in development mode
+pnpm dev
+
+# Lint all packages
+pnpm lint
+
+# Format code
+pnpm format
+
+# Create a new Solder app
+pnpm create-app
+```
+
+<div align="center">
+
+## 🚀 Ready to Build?
+
+**Start building production-ready Solana backends today**
+
+[Visit solder.build →](https://solder.build)
+
+Follow us on [X/Twitter](https://x.com/solder_official) • Check out [legends.fun](https://www.legends.fun/products/3fcaabac-2fe8-402b-a1fd-53833b66dfad)
+
+</div>

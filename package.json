@@ -7,7 +7,8 @@
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",
-    "demo:core": "pnpm dlx tsx packages/core/src/demo.ts"
+    "demo:core": "pnpm dlx tsx packages/core/src/demo.ts",
+    "create-app": "node packages/cli/dist/index.js"
   },
   "devDependencies": {
     "prettier": "^3.6.2",

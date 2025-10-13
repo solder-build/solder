@@ -1,0 +1,49 @@
+{
+  "name": "create-solder-app",
+  "version": "0.1.0",
+  "description": "Create a new Solder indexer app",
+  "type": "module",
+  "bin": {
+    "create-solder-app": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "template"
+  ],
+  "scripts": {
+    "sync-template": "node scripts/sync-template.mjs",
+    "prebuild": "pnpm run sync-template",
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "solder",
+    "solana",
+    "indexer",
+    "blockchain",
+    "create-app",
+    "cli"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/solder.git",
+    "directory": "packages/cli"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "prompts": "^2.4.2",
+    "fs-extra": "^11.2.0",
+    "chalk": "^5.3.0",
+    "ora": "^8.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.17",
+    "@types/prompts": "^2.4.9",
+    "@types/fs-extra": "^11.0.4",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
