@@ -1,7 +1,7 @@
 // your-package/api.ts
 import { Hono } from "hono";
 import { eq } from "drizzle-orm";
-import { TableDefinition } from "./tables.js";
+import { TableDefinition } from "../tables.js";
 import {
   parseQueryFilters,
   parseLogicalOperator,
@@ -102,14 +102,6 @@ export function generateCrudRouter(tableDef: TableDefinition, db: DbLike) {
         const sorting = parseSorting(queryParams.order);
         const pagination = parsePagination(queryParams.limit, queryParams.offset);
         const fields = parseFieldSelection(queryParams.select);
-        
-        console.log(`[CRUD] Query params:`, {
-          filters,
-          logicalOr,
-          sorting,
-          pagination,
-          fields,
-        });
         
         // Build query - field selection must happen at SQL level
         let query;
