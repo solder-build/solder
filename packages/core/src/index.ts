@@ -5,3 +5,5 @@ export * from "./indexer/index";
 export * from "./tables";
 export * from "./db";
 export * from "./api";
+export * from "./api-query-parser";
+export * from "./api-query-builder";

@@ -155,11 +155,39 @@ const trades = solderTable(
 | ------------------- | --------- | ---------------- | -------------------------------------------- |
 | `enabled`           | `boolean` | `true`           | Enable/disable API generation for this table |
 | `basePath`          | `string`  | `"/{tableName}"` | Base path for API endpoints                  |
-| `operations.list`   | `boolean` | `true`           | Enable GET /basePath (list all)              |
+| `operations.list`   | `boolean` | `true`           | Enable GET /basePath (list with query support) |
 | `operations.read`   | `boolean` | `true`           | Enable GET /basePath/:id (read one)          |
 | `operations.create` | `boolean` | `true`           | Enable POST /basePath (create)               |
 | `operations.update` | `boolean` | `true`           | Enable PUT /basePath/:id (update)            |
 | `operations.delete` | `boolean` | `true`           | Enable DELETE /basePath/:id (delete)         |
+
+### Fine-Grained Query API
+
+The LIST operation supports powerful PostgREST-style query parameters for filtering, sorting, pagination, and field selection:
+
+```bash
+# Basic filtering
+GET /trades?is_buy=eq.true&sol_amount=gt.1000
+
+# Logical OR
+GET /trades?or=(is_buy.eq.true,sol_amount.gt.5000)
+
+# Sorting
+GET /trades?order=timestamp.desc
+
+# Pagination
+GET /trades?limit=10&offset=20
+
+# Field selection
+GET /trades?select=mint,user,timestamp
+
+# Combined
+GET /trades?is_buy=eq.true&order=timestamp.desc&limit=10&select=mint,user,sol_amount
+```
+
+**Supported operators**: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`
+
+For complete documentation, see [Query API Guide](./packages/core/QUERY-API.md)
 
 ### Building the Schema
 
