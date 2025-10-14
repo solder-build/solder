@@ -4,4 +4,6 @@ export * from "./idl/idl-types";
 export * from "./indexer/index";
 export * from "./tables";
 export * from "./db";
-export * from "./api";
+export * from "./api/api";
+export * from "./api/api-query-parser";
+export * from "./api/api-query-builder";
