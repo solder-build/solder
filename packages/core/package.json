@@ -7,6 +7,11 @@
   "type": "commonjs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Quantum3-Labs/solder.git",
+    "directory": "packages/core"
+  },
   "files": [
     "dist",
     "README.md"
