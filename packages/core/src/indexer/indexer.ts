@@ -11,6 +11,7 @@ export interface IndexerConfig {
   rpcUrl: string;
   databaseUrl?: string; // Postgres connection string
   cursorKey?: string; // namespaced cursor key
+  enableUIProgress?: boolean; // enable UI progress
 }
 
 export interface RegisteredProgram {
@@ -95,15 +96,25 @@ export class Indexer {
   private isRunning: boolean = false;
   private currentSlot: number;
   private cursorStore?: CursorStore;
+  private enableUIProgress: boolean = false;
   private cursorKey: string;
   private db:
     | (NodePgDatabase<Record<string, never>> & { $client: Pool })
     | null = null;
+  private uiShutdown?: () => void;
+  private progressState = {
+    requestTimestamps: [] as number[],
+    eventStats: new Map<string, { count: number; totalDuration: number; contractAddress: string }>(),
+    startSlot: 0,
+    latestSlot: 0,
+    startTime: 0,
+  };
 
   constructor(config: IndexerConfig) {
     this.rpcClient = new RpcClient({ endpoint: config.rpcUrl });
     this.currentSlot = config.startBlock;
     this.cursorKey = config.cursorKey ?? "default";
+    this.enableUIProgress = config.enableUIProgress ?? false;
     if (config.databaseUrl) {
       const pool = new Pool({
         connectionString: process.env.DATABASE_URL,
@@ -249,6 +260,18 @@ export class Indexer {
     }
 
     this.isRunning = true;
+    
+    // Initialize progress state
+    this.progressState.startSlot = this.currentSlot;
+    this.progressState.startTime = Date.now();
+    this.progressState.latestSlot = await this.rpcClient.getSlot();
+    
+    // Setup UI if enabled
+    if (this.enableUIProgress) {
+      const { setupProgressUi } = await import('../ui/progress.js');
+      this.uiShutdown = setupProgressUi(() => this.getProgressUiState());
+    }
+    
     // Initialize cursor store if available
     if (this.cursorStore) {
       await this.cursorStore.connect();
@@ -276,6 +299,13 @@ export class Indexer {
    */
   stop(): void {
     this.isRunning = false;
+    
+    // Shutdown UI if it was enabled
+    if (this.uiShutdown) {
+      this.uiShutdown();
+      this.uiShutdown = undefined;
+    }
+    
     console.log("Indexer stopped");
     if (this.cursorStore) {
       this.cursorStore.close().catch(() => {});
@@ -309,6 +339,12 @@ export class Indexer {
    * Process a single block for registered programs and events
    */
   private async processBlock(slot: number): Promise<void> {
+    // Track request for RPS calculation
+    this.progressState.requestTimestamps.push(Date.now());
+    if (this.progressState.requestTimestamps.length > 100) {
+      this.progressState.requestTimestamps.shift(); // keep last 100
+    }
+    
     const programIds = this.getRegisteredProgramIds();
 
     if (programIds.length === 0) {
@@ -338,8 +374,24 @@ export class Indexer {
       );
 
       for (const transaction of blockData.transactions) {
-        for (const event of transaction.events) {
-          await this.handleEvent(event, transaction);
+        for (const eventInfo of transaction.events) {
+          const startTime = performance.now();
+          await this.handleEvent(eventInfo, transaction);
+          
+          // Track event stats
+          const duration = performance.now() - startTime;
+          const key = `${eventInfo.programId}-${eventInfo.event.name}`;
+          const existing = this.progressState.eventStats.get(key);
+          if (existing) {
+            existing.count++;
+            existing.totalDuration += duration;
+          } else {
+            this.progressState.eventStats.set(key, {
+              count: 1,
+              totalDuration: duration,
+              contractAddress: eventInfo.programId.slice(0, 16),
+            });
+          }
         }
       }
 
@@ -467,5 +519,63 @@ export class Indexer {
       registeredPrograms: this.registeredPrograms.size,
       eventHandlers: this.eventHandlers.size,
     };
+  }
+
+  private getProgressUiState(): any {
+    const now = Date.now();
+    const rps = this.calculateRPS(now);
+    const progress = this.calculateProgress();
+    const eta = this.calculateETA(rps, progress);
+    
+    return {
+      chain: 'Solana',
+      status: this.isRunning ? 'Running' : 'Stopped',
+      block: this.currentSlot,
+      rps,
+      percent: progress,
+      eta,
+      mode: this.currentSlot >= this.progressState.latestSlot ? 'live' : 'historical',
+      events: Array.from(this.progressState.eventStats.entries()).map(([name, stats]) => ({
+        eventName: name,
+        count: stats.count,
+        averageDuration: stats.count > 0 ? stats.totalDuration / stats.count : 0,
+        contractAddress: stats.contractAddress,
+      })),
+      health: {
+        database: this.db !== null,
+        ws: false,
+        rpc: true,
+      },
+    };
+  }
+
+  private calculateRPS(now: number): number {
+    const recentRequests = this.progressState.requestTimestamps.filter(
+      ts => now - ts < 10000 // last 10 seconds
+    );
+    return recentRequests.length / 10;
+  }
+
+  private calculateProgress(): number {
+    if (this.progressState.latestSlot === 0) return 0;
+    const total = this.progressState.latestSlot - this.progressState.startSlot;
+    const current = this.currentSlot - this.progressState.startSlot;
+    
+    // If we're doing historical sync and have processed a reasonable amount,
+    // show some progress even if it's very small
+    if (total > 1000000 && current > 100) {
+      // For very large historical syncs, show progress based on time elapsed
+      const timeElapsed = Date.now() - this.progressState.startTime;
+      const estimatedTotalTime = timeElapsed * (total / current);
+      return Math.min(0.99, timeElapsed / estimatedTotalTime);
+    }
+    
+    return Math.min(1, current / total);
+  }
+
+  private calculateETA(rps: number, progress: number): number {
+    if (rps === 0 || progress >= 1) return 0;
+    const remaining = this.progressState.latestSlot - this.currentSlot;
+    return remaining / rps;
   }
 }

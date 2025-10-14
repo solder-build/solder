@@ -7,18 +7,20 @@ import { PublicKey } from "@solana/web3.js";
 export const initializeIndexer = async () => {
   /// configure your indexer here
   const indexer = new Indexer({
-    startBlock: 300000000,
+    startBlock: 373232483,
     rpcUrl: process.env.RPC_URL || "https://api.mainnet-beta.solana.com",
     databaseUrl:
       process.env.DATABASE_URL ||
       "postgresql://postgres:password123@127.0.0.1:6500/app",
     cursorKey: "my-indexer",
+    enableUIProgress: true,
   });
 
   /// configure your event listeners here
   await indexer.onEvent({
     programId: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
-    idl: pumpFunIdl,
+    // @ts-ignore
+    idl: pumpFunIdl as Idl,
     eventName: "TradeEvent",
     handler: async (
       event: {
