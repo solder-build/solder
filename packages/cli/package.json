@@ -1,5 +1,5 @@
 {
-  "name": "create-solder-app",
+  "name": "create-solder",
   "version": "0.1.0",
   "description": "Create a new Solder indexer app",
   "type": "module",
