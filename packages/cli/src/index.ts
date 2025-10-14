@@ -43,7 +43,7 @@ interface CliAnswers {
 
 async function main() {
   console.log(
-    chalk.bold.cyan(
+    chalk.bold.greenBright(
       `
     ███████╗ ██████╗ ██╗      ██████╗ ███████╗██████╗ 
     ██╔════╝██╔═══██╗██║     ██╔═══██╗██╔════╝██╔══██╗
@@ -51,10 +51,10 @@ async function main() {
     ╚════██║██║   ██║██║     ██║   ██║██╔══╝  ██╔══██╗
     ███████║╚██████╔╝███████╗╚██████╔╝███████╗██║  ██║
     ╚══════╝ ╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝
-  `.trim(),
+  `,
     ),
   );
-  console.log(chalk.bold.cyan("\n🔧 Create Solder App\n"));
+  console.log(chalk.bold.green("\n🔧 Create Solder App\n"));
 
   const answers = await prompts(
     [
