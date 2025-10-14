@@ -73,6 +73,9 @@ importers:
       '@solana/web3.js':
         specifier: ^1.95.2
         version: 1.98.4(bufferutil@4.0.9)(typescript@5.9.2)(utf-8-validate@5.0.10)
+      '@solder-build/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       bn:
         specifier: ^1.0.5
         version: 1.0.5
@@ -85,9 +88,6 @@ importers:
       pg:
         specifier: ^8.16.3
         version: 8.16.3
-      solder:
-        specifier: workspace:*
-        version: link:../../packages/core
     devDependencies:
       '@types/node':
         specifier: ^20.11.17

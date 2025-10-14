@@ -152,6 +152,16 @@ async function main() {
     const packageJsonPath = path.join(resolvedTargetPath, "package.json");
     const packageJson = await fs.readJson(packageJsonPath);
     packageJson.name = projectName;
+    // Set @solder-build/core version to match create-solder-app version
+    // get current CLI package version by reading its own package.json
+    try {
+      const cliPackageJsonPath = path.join(__dirname, "..", "package.json");
+      const cliPackageJson = await fs.readJson(cliPackageJsonPath);
+      const cliVersion = cliPackageJson.version || "latest";
+      packageJson.dependencies["@solder-build/core"] = `^${cliVersion}`;
+    } catch (e) {
+      packageJson.dependencies["@solder-build/core"] = "latest";
+    }
     await fs.writeJson(packageJsonPath, packageJson, { spaces: 2 });
 
     // Rename gitignore file (template has it without the dot to avoid npm issues)
