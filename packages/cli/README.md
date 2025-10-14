@@ -33,10 +33,10 @@ Solder is a comprehensive Solana backend framework that abstracts away the compl
 
 ### Option 1: Using the CLI (Recommended)
 
-The fastest way to get started with Solder is using the `create-solder-app` CLI:
+The fastest way to get started with Solder is using the `create-solder` CLI:
 
 ```bash
-npx create-solder-app
+npx create-solder
 ```
 
 The CLI will:
@@ -496,7 +496,7 @@ This Turborepo includes the following packages and apps:
 ### Packages
 
 - **`packages/core`** - Core Solder framework (`solder`)
-- **`packages/cli`** - CLI for scaffolding projects (`create-solder-app`)
+- **`packages/cli`** - CLI for scaffolding projects (`create-solder`)
 - **`@repo/ui`** - Shared React component library
 - **`@repo/eslint-config`** - Shared ESLint configurations
 - **`@repo/typescript-config`** - Shared TypeScript configurations

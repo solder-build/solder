@@ -152,7 +152,7 @@ async function main() {
     const packageJsonPath = path.join(resolvedTargetPath, "package.json");
     const packageJson = await fs.readJson(packageJsonPath);
     packageJson.name = projectName;
-    // Set @solder-build/core version to match create-solder-app version
+    // Set @solder-build/core version to match create-solder version
     // get current CLI package version by reading its own package.json
     try {
       const cliPackageJsonPath = path.join(__dirname, "..", "package.json");

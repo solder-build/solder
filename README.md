@@ -33,10 +33,10 @@ Solder is a comprehensive Solana backend framework that abstracts away the compl
 
 ### Option 1: Using the CLI (Recommended)
 
-The fastest way to get started with Solder is using the `create-solder-app` CLI:
+The fastest way to get started with Solder is using the `create-solder` CLI:
 
 ```bash
-npx create-solder-app
+npx create-solder
 ```
 
 The CLI will:
@@ -151,15 +151,15 @@ const trades = solderTable(
 
 #### API Configuration
 
-| Option              | Type      | Default          | Description                                  |
-| ------------------- | --------- | ---------------- | -------------------------------------------- |
-| `enabled`           | `boolean` | `true`           | Enable/disable API generation for this table |
-| `basePath`          | `string`  | `"/{tableName}"` | Base path for API endpoints                  |
+| Option              | Type      | Default          | Description                                    |
+| ------------------- | --------- | ---------------- | ---------------------------------------------- |
+| `enabled`           | `boolean` | `true`           | Enable/disable API generation for this table   |
+| `basePath`          | `string`  | `"/{tableName}"` | Base path for API endpoints                    |
 | `operations.list`   | `boolean` | `true`           | Enable GET /basePath (list with query support) |
-| `operations.read`   | `boolean` | `true`           | Enable GET /basePath/:id (read one)          |
-| `operations.create` | `boolean` | `true`           | Enable POST /basePath (create)               |
-| `operations.update` | `boolean` | `true`           | Enable PUT /basePath/:id (update)            |
-| `operations.delete` | `boolean` | `true`           | Enable DELETE /basePath/:id (delete)         |
+| `operations.read`   | `boolean` | `true`           | Enable GET /basePath/:id (read one)            |
+| `operations.create` | `boolean` | `true`           | Enable POST /basePath (create)                 |
+| `operations.update` | `boolean` | `true`           | Enable PUT /basePath/:id (update)              |
+| `operations.delete` | `boolean` | `true`           | Enable DELETE /basePath/:id (delete)           |
 
 ### Fine-Grained Query API
 
@@ -186,26 +186,28 @@ GET /trades?is_buy=eq.true&sol_amount=gt.1000
 
 Solder supports the following comparison operators:
 
-| Operator | Description              | Example                    |
-|----------|--------------------------|----------------------------|
-| `eq`     | Equal                    | `?amount=eq.100`           |
-| `neq`    | Not equal                | `?amount=neq.0`            |
-| `gt`     | Greater than             | `?amount=gt.1000`          |
-| `gte`    | Greater than or equal    | `?amount=gte.1000`         |
-| `lt`     | Less than                | `?amount=lt.500`           |
-| `lte`    | Less than or equal       | `?amount=lte.500`          |
+| Operator | Description           | Example            |
+| -------- | --------------------- | ------------------ |
+| `eq`     | Equal                 | `?amount=eq.100`   |
+| `neq`    | Not equal             | `?amount=neq.0`    |
+| `gt`     | Greater than          | `?amount=gt.1000`  |
+| `gte`    | Greater than or equal | `?amount=gte.1000` |
+| `lt`     | Less than             | `?amount=lt.500`   |
+| `lte`    | Less than or equal    | `?amount=lte.500`  |
 
 **Type Handling:** The API automatically converts values to the appropriate type (booleans, numbers, strings, null).
 
 #### Logical Operators
 
 **OR Conditions:**
+
 ```bash
 # Get trades where is_buy is true OR sol_amount is greater than 5000
 GET /trades?or=(is_buy.eq.true,sol_amount.gt.5000)
 ```
 
 **AND Conditions (Default):**
+
 ```bash
 # Get trades where is_buy is true AND sol_amount is greater than 1000
 GET /trades?is_buy=eq.true&sol_amount=gt.1000
@@ -494,7 +496,7 @@ This Turborepo includes the following packages and apps:
 ### Packages
 
 - **`packages/core`** - Core Solder framework (`solder`)
-- **`packages/cli`** - CLI for scaffolding projects (`create-solder-app`)
+- **`packages/cli`** - CLI for scaffolding projects (`create-solder`)
 - **`@repo/ui`** - Shared React component library
 - **`@repo/eslint-config`** - Shared ESLint configurations
 - **`@repo/typescript-config`** - Shared TypeScript configurations
