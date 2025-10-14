@@ -1,5 +1,5 @@
 {
-  "name": "solder",
+  "name": "@solder-build/core",
   "private": true,
   "scripts": {
     "build": "turbo run build",

@@ -17,7 +17,7 @@
     "dev": "tsc --watch"
   },
   "keywords": [
-    "solder",
+    "@solder-build/core",
     "solana",
     "indexer",
     "blockchain",

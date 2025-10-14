@@ -106,7 +106,7 @@ The `solderTable` function is the core building block for defining your database
 ### Basic Usage
 
 ```typescript
-import { solderTable } from "solder";
+import { solderTable } from "@solder-build/core";
 import { serial, varchar, timestamp, boolean, text } from "drizzle-orm/pg-core";
 
 const trades = solderTable(
@@ -309,7 +309,7 @@ GET /trades
 After defining your tables, use `solderSchema` to build the final schema:
 
 ```typescript
-import { solderSchema } from "solder";
+import { solderSchema } from "@solder-build/core";
 
 const built = solderSchema(trades, users, tokens);
 
@@ -332,7 +332,7 @@ The `Indexer` class is the core component for monitoring Solana blockchain event
 ### Creating an Indexer
 
 ```typescript
-import { Indexer } from "solder";
+import { Indexer } from "@solder-build/core";
 
 const indexer = new Indexer({
   startBlock: 300000000, // Starting slot number
@@ -425,7 +425,7 @@ console.log(status);
 ### Complete Example
 
 ```typescript
-import { Indexer } from "solder";
+import { Indexer } from "@solder-build/core";
 import { tradesTable } from "./schema";
 import pumpFunIdl from "./idls/pump-fun.json";
 
