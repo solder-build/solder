@@ -2,9 +2,9 @@ import { Indexer, type IndexerEvent } from "solder";
 import { tradesTable } from "../../solder.schema.js";
 import { PublicKey } from "@solana/web3.js";
 import pumpFunIdlJson from "../idls/pump-fun.json" with { type: "json" };
-import type { Idl } from "@project-serum/anchor";
+import type { Idl } from "@coral-xyz/anchor";
 
-const pumpFunIdl = pumpFunIdlJson as Idl;
+const pumpFunIdl = pumpFunIdlJson as unknown as Idl;
 
 export const initializeIndexer = async () => {
   /// configure your indexer here

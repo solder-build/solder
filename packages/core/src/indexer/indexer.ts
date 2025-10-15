@@ -2,9 +2,9 @@ import { Connection } from "@solana/web3.js";
 import { RpcClient } from "../rpc/rpc";
 import { EventType, IdlEvent } from "../idl/idl-types";
 import { CursorStore } from "./db";
-import { Idl } from "@project-serum/anchor";
 import { drizzle, NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
+import { Idl } from "@coral-xyz/anchor";
 
 export interface IndexerConfig {
   startBlock: number;
@@ -431,7 +431,7 @@ export class Indexer {
         return event.parsed;
       }
       const eventDefinition = idl.events.find(
-        (e: IdlEvent) => e.name === event.name,
+        (e: any) => e.name === event.name,
       );
       if (!eventDefinition) {
         console.warn(`Event definition not found in IDL for ${event.name}`);
