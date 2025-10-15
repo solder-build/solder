@@ -27,6 +27,7 @@ Solder is a comprehensive Solana backend framework that abstracts away the compl
 - 🗄️ **Built-in Database Support** - Integrated Drizzle ORM with PostgreSQL
 - 🔌 **Auto-generated APIs** - RESTful CRUD endpoints created automatically from your schema
 - 📝 **Type-safe** - Full TypeScript support with IDL-based type inference
+- 📊 **Real-time Progress UI** - Live terminal interface with performance metrics and health monitoring
 - ⚡ **Fast Development** - Go from zero to production-ready backend in minutes
 
 ## Quick Start
@@ -337,6 +338,7 @@ const indexer = new Indexer({
   rpcUrl: process.env.RPC_URL, // Solana RPC endpoint
   databaseUrl: process.env.DATABASE_URL, // PostgreSQL connection string
   cursorKey: "my-indexer", // Unique identifier for this indexer
+  enableUIProgress: true, // Enable real-time progress UI
 });
 ```
 
@@ -420,6 +422,33 @@ console.log(status);
 // }
 ```
 
+### Progress UI
+
+When `enableUIProgress: true` is set, Solder provides a real-time terminal UI that displays:
+
+- **Chain Status**: Current blockchain status and sync progress
+- **Indexing Stats**: Real-time event processing statistics with RPS (requests per second)
+- **Event Table**: Live view of processed events with counts and performance metrics
+- **Progress Bar**: Visual progress indicator with ETA calculations
+- **Health Monitoring**: Database, WebSocket, and RPC connection status
+
+The progress UI automatically updates in place, providing a clean development experience without cluttering your terminal output.
+
+```typescript
+const indexer = new Indexer({
+  // ... other options
+  enableUIProgress: true, // Enables the real-time progress UI
+});
+```
+
+**Features:**
+- Live terminal updates without scrolling
+- Performance metrics (RPS, average processing time)
+- Health status indicators
+- Progress tracking with ETA
+- Event processing statistics
+- Responsive design that adapts to terminal width
+
 ### Complete Example
 
 ```typescript
@@ -433,6 +462,7 @@ export const initializeIndexer = async () => {
     rpcUrl: process.env.RPC_URL || "https://api.mainnet-beta.solana.com",
     databaseUrl: process.env.DATABASE_URL,
     cursorKey: "pump-fun-indexer",
+    enableUIProgress: true,
   });
 
   await indexer.onEvent({
