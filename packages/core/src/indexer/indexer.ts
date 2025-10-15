@@ -1,4 +1,3 @@
-import { Connection } from "@solana/web3.js";
 import { RpcClient } from "../rpc/rpc";
 import { EventType, IdlEvent } from "../idl/idl-types";
 import { CursorStore } from "./db";
