@@ -31,7 +31,14 @@ Solder is a comprehensive Solana backend framework that abstracts away the compl
 
 ## Quick Start
 
-### Option 1: Using the CLI (Recommended)
+### Requirements
+
+- Node.js >= 18
+- npm, pnpm, or yarn
+- PostgreSQL database
+- Solana RPC endpoint (optional: defaults to public mainnet RPC)
+
+### Solder App Setup
 
 The fastest way to get started with Solder is using the `create-solder` CLI:
 
@@ -56,46 +63,17 @@ cp .env.example .env
 # Update .env with your RPC URL and database connection string
 
 # Install dependencies (if you skipped during setup)
-pnpm install
+npm install
 
 # Generate database schema
-pnpm run generate
+npm run generate
 
 # Push schema to database
-pnpm run push
+npm run push
 
 # Start the indexer and API server
-pnpm run dev
+npm run dev
 ```
-
-### Option 2: Clone the Example App
-
-Clone the repository and navigate to the example application:
-
-```bash
-git clone https://github.com/your-org/solder.git
-cd solder/apps/example-app
-
-# Install dependencies
-pnpm install
-
-# Configure environment
-cp .env.example .env
-# Update .env with your configuration
-
-# Generate and push database schema
-pnpm run generate
-pnpm run push
-
-# Start the server
-pnpm run dev
-```
-
-### Requirements
-
-- Node.js >= 18
-- PostgreSQL database
-- Solana RPC endpoint (optional: defaults to public mainnet RPC)
 
 ---
 
