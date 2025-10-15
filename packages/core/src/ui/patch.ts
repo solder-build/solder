@@ -35,10 +35,11 @@ export function patchWriteStreams({ getLines }: { getLines: () => string[] }) {
     try {
       const text = [...lines, ''].join('\n');
       const newLineCount = calculateLineCount(lines);
-      if (previousLineCount > 0) {
-        originalStdoutWrite.call(process.stdout, ansi.cursorUp(previousLineCount));
-      }
-      originalStdoutWrite.call(process.stdout, ansi.eraseDown);
+      
+      // Always clear the entire screen and move cursor to top
+      originalStdoutWrite.call(process.stdout, ansi.clearScreen);
+      originalStdoutWrite.call(process.stdout, ansi.cursorTo(0, 0));
+      
       originalStdoutWrite.call(process.stdout, text);
       previousLineCount = newLineCount;
     } finally {
@@ -56,10 +57,11 @@ export function patchWriteStreams({ getLines }: { getLines: () => string[] }) {
     if (isWriting) {
       return originalWrite.apply(this, [buffer, encoding, cb]);
     }
-    if (previousLineCount > 0) {
-      originalStdoutWrite.call(process.stdout, ansi.cursorUp(previousLineCount) + ansi.eraseDown);
-      previousLineCount = 0;
-    }
+    // Clear screen before writing output
+    originalStdoutWrite.call(process.stdout, ansi.clearScreen);
+    originalStdoutWrite.call(process.stdout, ansi.cursorTo(0, 0));
+    previousLineCount = 0;
+    
     const result = originalWrite.apply(this, [buffer, encoding, cb]);
     const lines = getLines();
     clearAndWriteLines(lines);
@@ -70,10 +72,11 @@ export function patchWriteStreams({ getLines }: { getLines: () => string[] }) {
 
   const resizeListener = async () => {
     terminalWidth = await getTerminalWidth();
-    if (previousLineCount > 0) {
-      originalStdoutWrite.call(process.stdout, ansi.cursorUp(previousLineCount) + ansi.eraseDown);
-      previousLineCount = 0;
-    }
+    // Clear screen before redrawing
+    originalStdoutWrite.call(process.stdout, ansi.clearScreen);
+    originalStdoutWrite.call(process.stdout, ansi.cursorTo(0, 0));
+    previousLineCount = 0;
+    
     const lines = getLines();
     clearAndWriteLines(lines);
   };

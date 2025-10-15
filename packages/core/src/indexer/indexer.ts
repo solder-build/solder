@@ -423,7 +423,7 @@ export class Indexer {
 
     // Check if this event type is registered for monitoring
     if (event.name && registeredProgram.eventTypes.includes(event.name)) {
-      console.log(`Event detected: ${event.name} from program ${programId}`);
+      // console.log(`Event detected: ${event.name} from program ${programId}`);
       // Parse event with the provided IDL for better type safety
       const parsedEvent = this.parseEventWithIdl(event, registeredProgram.idl);
 

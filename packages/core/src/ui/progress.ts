@@ -172,9 +172,6 @@ export function renderProgressUi(state: ProgressUiState): string[] {
     '│ Database │ ' +
       (state.health.database ? pc.greenBright('✓') : pc.redBright('✗')) +
       ' │\n' +
-      '│ WS       │ ' +
-      (state.health.ws ? pc.greenBright('✓') : pc.redBright('✗')) +
-      ' │\n' +
       '│ RPC      │ ' +
       (state.health.rpc ? pc.greenBright('✓') : pc.redBright('✗')) +
       ' │'
