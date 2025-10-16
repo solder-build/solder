@@ -3,7 +3,6 @@ import { createSolanaRpc } from "@solana/rpc";
 import { fromLegacyPublicKey } from "@solana/compat";
 import { DecodedEvent, decodeEvent, decodeInstruction } from "../idl/idl";
 import { collectWith, fetchParsedBlock, isParsedInstruction, isPartiallyDecodedInstruction } from "../utils/block";
-import { BorshCoder } from "@project-serum/anchor";
 
 export type RpcClientOptions = {
   endpoint?: string;
