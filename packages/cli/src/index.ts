@@ -189,7 +189,7 @@ async function main() {
     // Create a .env.example file
     spinner.text = "Creating .env.example...";
     const envExample = `# Database Configuration
-DATABASE_URL=postgresql://postgres:password123@127.0.0.1:6500/app
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/solder
 
 # Solana RPC Configuration
 RPC_URL=https://api.mainnet-beta.solana.com
