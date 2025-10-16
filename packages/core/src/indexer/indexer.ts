@@ -1,4 +1,3 @@
-import { Connection } from "@solana/web3.js";
 import { RpcClient } from "../rpc/rpc";
 import { EventType, IdlEvent } from "../idl/idl-types";
 import { CursorStore } from "./db";
@@ -264,7 +263,7 @@ export class Indexer {
     // Initialize progress state
     this.progressState.startSlot = this.currentSlot;
     this.progressState.startTime = Date.now();
-    this.progressState.latestSlot = await this.rpcClient.getSlot();
+    this.progressState.latestSlot = Number(await this.rpcClient.getSlot());
     
     // Setup UI if enabled
     if (this.enableUIProgress) {
@@ -318,7 +317,7 @@ export class Indexer {
   private async processBlocks(): Promise<void> {
     while (this.isRunning) {
       try {
-        const latestSlot = await this.rpcClient.getSlot();
+        const latestSlot = Number(await this.rpcClient.getSlot());
 
         if (this.currentSlot <= latestSlot) {
           await this.processBlock(this.currentSlot);

@@ -1,12 +1,14 @@
-import { Connection, Commitment, Cluster, clusterApiUrl, ParsedTransaction } from "@solana/web3.js";
+import { ParsedTransaction } from "@solana/web3.js";
+import { createSolanaRpc } from "@solana/rpc";
+import { fromLegacyPublicKey } from "@solana/compat";
 import { DecodedEvent, decodeEvent, decodeInstruction } from "../idl/idl";
 import { collectWith, fetchParsedBlock, isParsedInstruction, isPartiallyDecodedInstruction } from "../utils/block";
 import { BorshCoder } from "@project-serum/anchor";
 
 export type RpcClientOptions = {
   endpoint?: string;
-  cluster?: Cluster;
-  commitment?: Commitment;
+  cluster?: "devnet" | "testnet" | "mainnet-beta";
+  commitment?: "processed" | "confirmed" | "finalized";
   httpHeaders?: Record<string, string>;
 };
 
@@ -32,7 +34,7 @@ function hasMessage(tx: ParsedBlockTx["transaction"]): tx is ParsedTransaction {
 // Aliases already imported from utils/block.ts
 
 export class RpcClient {
-  private readonly connection: Connection;
+  private readonly rpc: ReturnType<typeof createSolanaRpc>;
 
   constructor(options: RpcClientOptions = {}) {
     const {
@@ -41,24 +43,47 @@ export class RpcClient {
       commitment = "confirmed",
       httpHeaders,
     } = options;
-    const url = endpoint ?? clusterApiUrl(cluster);
-    this.connection = new Connection(url, { commitment, httpHeaders });
+    
+    let url: string;
+    if (endpoint) {
+      url = endpoint;
+    } else {
+      // Map cluster to URL
+      switch (cluster) {
+        case "devnet":
+          url = "https://api.devnet.solana.com";
+          break;
+        case "testnet":
+          url = "https://api.testnet.solana.com";
+          break;
+        case "mainnet-beta":
+          url = "https://api.mainnet-beta.solana.com";
+          break;
+        default:
+          url = "https://api.devnet.solana.com";
+      }
+    }
+    
+    this.rpc = createSolanaRpc(url);
   }
 
-  getConnection(): Connection {
-    return this.connection;
+  getConnection(): ReturnType<typeof createSolanaRpc> {
+    return this.rpc;
   }
 
-  async getLatestBlockhash() {
-    return this.connection.getLatestBlockhash();
+  async getLatestBlockhash(): Promise<{ blockhash: string; lastValidBlockHeight: bigint }> {
+    const response = await this.rpc.getLatestBlockhash().send();
+    return response.value;
   }
 
-  async getSlot(commitment: Commitment = "confirmed") {
-    return this.connection.getSlot(commitment);
+  async getSlot(commitment: "processed" | "confirmed" | "finalized" = "confirmed"): Promise<bigint> {
+    const response = await this.rpc.getSlot({ commitment }).send();
+    return response;
   }
 
-  async getBlockTime(slot: number) {
-    return this.connection.getBlockTime(slot);
+  async getBlockTime(slot: number): Promise<number | null> {
+    const response = await this.rpc.getBlockTime(BigInt(slot)).send();
+    return response ? Number(response) : null;
   }
 
   // --- Shared helpers are in utils/block.ts ---
@@ -82,7 +107,7 @@ export class RpcClient {
     }>;
   } | null> {
     const { block, blockHash, blockTime } = await fetchParsedBlock(
-      this.connection,
+      this.rpc,
       slot,
     );
     if (!block || !blockHash) return null;
@@ -156,7 +181,7 @@ export class RpcClient {
     }>;
   } | null> {
     const { block, blockHash, blockTime } = await fetchParsedBlock(
-      this.connection,
+      this.rpc,
       slot,
     );
     if (!block || !blockHash) return null;
