@@ -137,7 +137,7 @@ export function renderProgressUi(state: ProgressUiState): string[] {
   lines.push('');
   lines.push(
     ...buildTable(state.events, [
-      { title: 'Event', key: 'eventName', align: 'left', maxWidth: 60 },
+      { title: 'Event', key: 'eventName', align: 'left', maxWidth: 80 },
       { title: 'Contract', key: 'contractAddress', align: 'right', maxWidth: 16 },
       { title: 'Count', key: 'count', align: 'right' },
       {

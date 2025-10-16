@@ -28,7 +28,6 @@
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
-    "@project-serum/anchor": "^0.26.0",
     "@solana/compat": "^4.0.0",
     "@solana/rpc": "^4.0.0",
     "@solana/kit": "^4.0.0",
