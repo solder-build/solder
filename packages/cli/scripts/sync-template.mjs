@@ -27,7 +27,19 @@ await fs.copy(sourceDir, targetDir, {
       "drizzle", // Skip generated migrations
     ];
 
-    return !skipPatterns.some((pattern) => relativePath.includes(pattern));
+    // Always include drizzle.config.ts even if other "drizzle*" matches would be skipped
+    if (relativePath === "drizzle.config.ts") {
+      return true;
+    }
+
+    return !skipPatterns.some((pattern) =>
+      // do not skip drizzle.config.ts
+      pattern === "drizzle"
+        ? relativePath === "drizzle.config.ts"
+          ? false
+          : relativePath.includes(pattern)
+        : relativePath.includes(pattern),
+    );
   },
 });
 

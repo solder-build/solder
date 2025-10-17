@@ -1,0 +1,164 @@
+name: Publish Alpha to NPM
+
+on:
+  workflow_dispatch:
+    inputs:
+      prerelease_identifier:
+        description: "Prerelease identifier (alpha, beta, rc)"
+        required: false
+        default: "alpha"
+        type: choice
+        options:
+          - alpha
+          - beta
+          - rc
+
+jobs:
+  publish-alpha:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for [skip ci]
+        id: skip_ci
+        run: |
+          # Check latest commit message for [skip ci]
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+
+          if [[ "$COMMIT_MSG" == *"[skip ci]"* ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Found [skip ci] in commit message. Skipping workflow."
+            exit 0
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "No [skip ci] found. Continuing workflow."
+          fi
+
+      - name: Setup Node.js
+        if: steps.skip_ci.outputs.skip == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup pnpm
+        if: steps.skip_ci.outputs.skip == 'false'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+          run_install: false
+
+      - name: Get pnpm store directory
+        if: steps.skip_ci.outputs.skip == 'false'
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        if: steps.skip_ci.outputs.skip == 'false'
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        if: steps.skip_ci.outputs.skip == 'false'
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        if: steps.skip_ci.outputs.skip == 'false'
+        run: |
+          cd packages/core
+          pnpm run build
+          cd ../cli
+          pnpm run build
+
+      - name: Configure git
+        if: steps.skip_ci.outputs.skip == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump prerelease version for @solder-build/core
+        id: bump_core
+        if: steps.skip_ci.outputs.skip == 'false'
+        run: |
+          cd packages/core
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          echo "Current version: $CURRENT_VERSION"
+
+          npm version prerelease --preid=${{ github.event.inputs.prerelease_identifier }} --no-git-tag-version
+
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          echo "New version: $NEW_VERSION"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Bump prerelease version for create-solder
+        id: bump_cli
+        if: steps.skip_ci.outputs.skip == 'false'
+        run: |
+          cd packages/cli
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          echo "Current version: $CURRENT_VERSION"
+
+          npm version prerelease --preid=${{ github.event.inputs.prerelease_identifier }} --no-git-tag-version
+
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          echo "New version: $NEW_VERSION"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Commit version bumps
+        if: steps.skip_ci.outputs.skip == 'false'
+        run: |
+          git add packages/core/package.json packages/cli/package.json
+          git commit -m "chore: bump versions to ${{ steps.bump_core.outputs.new_version }} [${{ github.event.inputs.prerelease_identifier }}] [skip ci]" || echo "No changes to commit"
+          git push
+
+      - name: Publish @solder-build/core to NPM (with alpha tag)
+        if: steps.skip_ci.outputs.skip == 'false'
+        run: |
+          cd packages/core
+          npm publish --provenance --access public --tag ${{ github.event.inputs.prerelease_identifier }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish create-solder to NPM (with alpha tag)
+        if: steps.skip_ci.outputs.skip == 'false'
+        run: |
+          cd packages/cli
+          npm publish --provenance --access public --tag ${{ github.event.inputs.prerelease_identifier }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create Git tags
+        if: steps.skip_ci.outputs.skip == 'false'
+        run: |
+          git tag "core-v${{ steps.bump_core.outputs.new_version }}"
+          git tag "cli-v${{ steps.bump_cli.outputs.new_version }}"
+          git push --tags
+
+      - name: Summary
+        if: steps.skip_ci.outputs.skip == 'false'
+        run: |
+          echo "## 📦 Published Prerelease Packages" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **@solder-build/core** - v${{ steps.bump_core.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **create-solder** - v${{ steps.bump_cli.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Prerelease type: **${{ github.event.inputs.prerelease_identifier }}**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Install with:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "npm install @solder-build/core@${{ github.event.inputs.prerelease_identifier }}" >> $GITHUB_STEP_SUMMARY
+          echo "npx create-solder@${{ github.event.inputs.prerelease_identifier }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

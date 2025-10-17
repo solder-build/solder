@@ -1,10 +1,10 @@
 {
-  "name": "create-solder-app",
-  "version": "0.1.0",
+  "name": "create-solder",
+  "version": "0.1.18",
   "description": "Create a new Solder indexer app",
   "type": "module",
   "bin": {
-    "create-solder-app": "./dist/index.js"
+    "create-solder": "./dist/index.js"
   },
   "files": [
     "dist",
@@ -17,7 +17,7 @@
     "dev": "tsc --watch"
   },
   "keywords": [
-    "solder",
+    "@solder-build/core",
     "solana",
     "indexer",
     "blockchain",
@@ -26,7 +26,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/solder.git",
+    "url": "https://github.com/Quantum3-Labs/solder.git",
     "directory": "packages/cli"
   },
   "author": "",

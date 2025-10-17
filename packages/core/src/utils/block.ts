@@ -1,5 +1,4 @@
 import {
-  Connection,
   ParsedAccountsModeBlockResponse,
   ParsedBlockResponse,
   ParsedInstruction,
@@ -7,6 +6,8 @@ import {
   ParsedTransactionMeta,
   PartiallyDecodedInstruction,
 } from "@solana/web3.js";
+import { createSolanaRpc } from "@solana/rpc";
+import { fromLegacyPublicKey } from "@solana/compat";
 
 export type ParsedBlockTx =
   | NonNullable<ParsedBlockResponse["transactions"]>[number]
@@ -28,21 +29,24 @@ export function isPartiallyDecodedInstruction(
 }
 
 export async function fetchParsedBlock(
-  connection: Connection,
+  rpc: ReturnType<typeof createSolanaRpc>,
   slot: number,
 ): Promise<{
   block: ParsedBlockResponse | ParsedAccountsModeBlockResponse | null;
   blockHash: string | null;
   blockTime: number | null;
 }> {
-  const block = await connection.getParsedBlock(slot, {
+  const response = await rpc.getBlock(BigInt(slot), {
+    encoding: "jsonParsed",
     maxSupportedTransactionVersion: 0,
-  });
-  if (!block) return { block: null, blockHash: null, blockTime: null };
+  }).send();
+  
+  if (!response) return { block: null, blockHash: null, blockTime: null };
+  
   return {
-    block,
-    blockHash: String(block.blockhash),
-    blockTime: block.blockTime ?? null,
+    block: response as unknown as ParsedBlockResponse | ParsedAccountsModeBlockResponse,
+    blockHash: response.blockhash,
+    blockTime: response.blockTime ? Number(response.blockTime) : null,
   };
 }
 
@@ -68,7 +72,11 @@ export function forEachInstruction(
   for (let i = 0; i < all.length; i++) {
     const instr = all[i];
     if (!instr) continue;
-    fn({ index: i + 1, programId: instr.programId.toBase58(), instr });
+    // Convert legacy PublicKey to string for compatibility
+    const programId = typeof instr.programId === 'string' 
+      ? instr.programId 
+      : fromLegacyPublicKey(instr.programId);
+    fn({ index: i + 1, programId, instr });
   }
 }
 
