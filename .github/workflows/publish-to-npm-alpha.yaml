@@ -121,7 +121,7 @@ jobs:
         if: steps.skip_ci.outputs.skip == 'false'
         run: |
           git add packages/core/package.json packages/cli/package.json
-          git commit -m "chore: bump versions to ${{ steps.bump_core.outputs.new_version }} [${{ github.event.inputs.prerelease_identifier }}]" || echo "No changes to commit"
+          git commit -m "chore: bump versions to ${{ steps.bump_core.outputs.new_version }} [${{ github.event.inputs.prerelease_identifier }}] [skip ci]" || echo "No changes to commit"
           git push
 
       - name: Publish @solder-build/core to NPM (with alpha tag)
