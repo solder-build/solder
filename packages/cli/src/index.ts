@@ -42,7 +42,19 @@ interface CliAnswers {
 }
 
 async function main() {
-  console.log(chalk.bold.cyan("\n🔧 Create Solder App\n"));
+  console.log(
+    chalk.bold.greenBright(
+      `
+    ███████╗ ██████╗ ██╗     ██████╗  ███████╗██████╗ 
+    ██╔════╝██╔═══██╗██║     ██╔═══██╗██╔════╝██╔══██╗
+    ███████╗██║   ██║██║     ██║   ██║█████╗  ██████╔╝
+    ╚════██║██║   ██║██║     ██║   ██║██╔══╝  ██╔══██╗
+    ███████║╚██████╔╝███████╗██████╔╝ ███████╗██║  ██║
+    ╚══════╝ ╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝
+  `,
+    ),
+  );
+  console.log(chalk.bold.green("\n🔧 Create Solder App\n"));
 
   const answers = await prompts(
     [
@@ -152,6 +164,16 @@ async function main() {
     const packageJsonPath = path.join(resolvedTargetPath, "package.json");
     const packageJson = await fs.readJson(packageJsonPath);
     packageJson.name = projectName;
+    // Set @solder-build/core version to match create-solder version
+    // get current CLI package version by reading its own package.json
+    try {
+      const cliPackageJsonPath = path.join(__dirname, "..", "package.json");
+      const cliPackageJson = await fs.readJson(cliPackageJsonPath);
+      const cliVersion = cliPackageJson.version || "latest";
+      packageJson.dependencies["@solder-build/core"] = `^${cliVersion}`;
+    } catch (e) {
+      packageJson.dependencies["@solder-build/core"] = "latest";
+    }
     await fs.writeJson(packageJsonPath, packageJson, { spaces: 2 });
 
     // Rename gitignore file (template has it without the dot to avoid npm issues)
@@ -167,7 +189,7 @@ async function main() {
     // Create a .env.example file
     spinner.text = "Creating .env.example...";
     const envExample = `# Database Configuration
-DATABASE_URL=postgresql://postgres:password123@127.0.0.1:6500/app
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/solder
 
 # Solana RPC Configuration
 RPC_URL=https://api.mainnet-beta.solana.com

@@ -1,12 +1,17 @@
 {
-  "name": "solder",
-  "version": "0.1.0",
+  "name": "@solder-build/core",
+  "version": "0.1.18",
   "description": "A modern Solana indexer framework with built-in database support and auto-generated APIs",
   "license": "ISC",
   "author": "",
   "type": "commonjs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Quantum3-Labs/solder.git",
+    "directory": "packages/core"
+  },
   "files": [
     "dist",
     "README.md"
@@ -21,6 +26,9 @@
     "hono",
     "drizzle"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsc --watch --outDir dist --project ./",

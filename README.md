@@ -32,12 +32,19 @@ Solder is a comprehensive Solana backend framework that abstracts away the compl
 
 ## Quick Start
 
-### Option 1: Using the CLI (Recommended)
+### Requirements
 
-The fastest way to get started with Solder is using the `create-solder-app` CLI:
+- Node.js >= 18
+- npm, pnpm, or yarn
+- PostgreSQL database
+- Solana RPC endpoint (optional: defaults to public mainnet RPC)
+
+### Solder App Setup
+
+The fastest way to get started with Solder is using the `create-solder` CLI:
 
 ```bash
-npx create-solder-app
+npx create-solder
 ```
 
 The CLI will:
@@ -57,46 +64,17 @@ cp .env.example .env
 # Update .env with your RPC URL and database connection string
 
 # Install dependencies (if you skipped during setup)
-pnpm install
+npm install
 
 # Generate database schema
-pnpm run generate
+npm run generate
 
 # Push schema to database
-pnpm run push
+npm run push
 
 # Start the indexer and API server
-pnpm run dev
+npm run dev
 ```
-
-### Option 2: Clone the Example App
-
-Clone the repository and navigate to the example application:
-
-```bash
-git clone https://github.com/your-org/solder.git
-cd solder/apps/example-app
-
-# Install dependencies
-pnpm install
-
-# Configure environment
-cp .env.example .env
-# Update .env with your configuration
-
-# Generate and push database schema
-pnpm run generate
-pnpm run push
-
-# Start the server
-pnpm run dev
-```
-
-### Requirements
-
-- Node.js >= 18
-- PostgreSQL database
-- Solana RPC endpoint (optional: defaults to public mainnet RPC)
 
 ---
 
@@ -107,7 +85,7 @@ The `solderTable` function is the core building block for defining your database
 ### Basic Usage
 
 ```typescript
-import { solderTable } from "solder";
+import { solderTable } from "@solder-build/core";
 import { serial, varchar, timestamp, boolean, text } from "drizzle-orm/pg-core";
 
 const trades = solderTable(
@@ -152,15 +130,15 @@ const trades = solderTable(
 
 #### API Configuration
 
-| Option              | Type      | Default          | Description                                  |
-| ------------------- | --------- | ---------------- | -------------------------------------------- |
-| `enabled`           | `boolean` | `true`           | Enable/disable API generation for this table |
-| `basePath`          | `string`  | `"/{tableName}"` | Base path for API endpoints                  |
+| Option              | Type      | Default          | Description                                    |
+| ------------------- | --------- | ---------------- | ---------------------------------------------- |
+| `enabled`           | `boolean` | `true`           | Enable/disable API generation for this table   |
+| `basePath`          | `string`  | `"/{tableName}"` | Base path for API endpoints                    |
 | `operations.list`   | `boolean` | `true`           | Enable GET /basePath (list with query support) |
-| `operations.read`   | `boolean` | `true`           | Enable GET /basePath/:id (read one)          |
-| `operations.create` | `boolean` | `true`           | Enable POST /basePath (create)               |
-| `operations.update` | `boolean` | `true`           | Enable PUT /basePath/:id (update)            |
-| `operations.delete` | `boolean` | `true`           | Enable DELETE /basePath/:id (delete)         |
+| `operations.read`   | `boolean` | `true`           | Enable GET /basePath/:id (read one)            |
+| `operations.create` | `boolean` | `true`           | Enable POST /basePath (create)                 |
+| `operations.update` | `boolean` | `true`           | Enable PUT /basePath/:id (update)              |
+| `operations.delete` | `boolean` | `true`           | Enable DELETE /basePath/:id (delete)           |
 
 ### Fine-Grained Query API
 
@@ -187,26 +165,28 @@ GET /trades?is_buy=eq.true&sol_amount=gt.1000
 
 Solder supports the following comparison operators:
 
-| Operator | Description              | Example                    |
-|----------|--------------------------|----------------------------|
-| `eq`     | Equal                    | `?amount=eq.100`           |
-| `neq`    | Not equal                | `?amount=neq.0`            |
-| `gt`     | Greater than             | `?amount=gt.1000`          |
-| `gte`    | Greater than or equal    | `?amount=gte.1000`         |
-| `lt`     | Less than                | `?amount=lt.500`           |
-| `lte`    | Less than or equal       | `?amount=lte.500`          |
+| Operator | Description           | Example            |
+| -------- | --------------------- | ------------------ |
+| `eq`     | Equal                 | `?amount=eq.100`   |
+| `neq`    | Not equal             | `?amount=neq.0`    |
+| `gt`     | Greater than          | `?amount=gt.1000`  |
+| `gte`    | Greater than or equal | `?amount=gte.1000` |
+| `lt`     | Less than             | `?amount=lt.500`   |
+| `lte`    | Less than or equal    | `?amount=lte.500`  |
 
 **Type Handling:** The API automatically converts values to the appropriate type (booleans, numbers, strings, null).
 
 #### Logical Operators
 
 **OR Conditions:**
+
 ```bash
 # Get trades where is_buy is true OR sol_amount is greater than 5000
 GET /trades?or=(is_buy.eq.true,sol_amount.gt.5000)
 ```
 
 **AND Conditions (Default):**
+
 ```bash
 # Get trades where is_buy is true AND sol_amount is greater than 1000
 GET /trades?is_buy=eq.true&sol_amount=gt.1000
@@ -308,7 +288,7 @@ GET /trades
 After defining your tables, use `solderSchema` to build the final schema:
 
 ```typescript
-import { solderSchema } from "solder";
+import { solderSchema } from "@solder-build/core";
 
 const built = solderSchema(trades, users, tokens);
 
@@ -331,7 +311,7 @@ The `Indexer` class is the core component for monitoring Solana blockchain event
 ### Creating an Indexer
 
 ```typescript
-import { Indexer } from "solder";
+import { Indexer } from "@solder-build/core";
 
 const indexer = new Indexer({
   startBlock: 300000000, // Starting slot number
@@ -452,7 +432,7 @@ const indexer = new Indexer({
 ### Complete Example
 
 ```typescript
-import { Indexer } from "solder";
+import { Indexer } from "@solder-build/core";
 import { tradesTable } from "./schema";
 import pumpFunIdl from "./idls/pump-fun.json";
 
@@ -524,7 +504,7 @@ This Turborepo includes the following packages and apps:
 ### Packages
 
 - **`packages/core`** - Core Solder framework (`solder`)
-- **`packages/cli`** - CLI for scaffolding projects (`create-solder-app`)
+- **`packages/cli`** - CLI for scaffolding projects (`create-solder`)
 - **`@repo/ui`** - Shared React component library
 - **`@repo/eslint-config`** - Shared ESLint configurations
 - **`@repo/typescript-config`** - Shared TypeScript configurations

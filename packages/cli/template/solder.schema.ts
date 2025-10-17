@@ -1,4 +1,4 @@
-import { solderSchema, solderTable } from "solder";
+import { solderSchema, solderTable } from "@solder-build/core";
 import {
   serial,
   text,
