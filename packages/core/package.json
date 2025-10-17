@@ -36,12 +36,17 @@
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
-    "@project-serum/anchor": "^0.26.0",
+    "@solana/compat": "^4.0.0",
+    "@solana/rpc": "^4.0.0",
+    "@solana/kit": "^4.0.0",
     "@solana/web3.js": "^1.98.4",
+    "ansi-escapes": "^7.1.1",
     "bs58": "^6.0.0",
     "drizzle-orm": "^0.44.6",
     "hono": "^4.9.8",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "picocolors": "^1.1.1",
+    "terminal-size": "^4.0.0"
   },
   "devDependencies": {
     "@types/pg": "^8.15.5",

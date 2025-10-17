@@ -1,11 +1,5 @@
 import bs58 from "bs58";
-import {
-  BorshCoder,
-  Idl,
-  BorshInstructionCoder,
-  BorshEventCoder,
-} from "@project-serum/anchor";
-import { utils } from "@coral-xyz/anchor";
+import { utils, BorshCoder, Idl, BorshInstructionCoder, BorshEventCoder } from "@coral-xyz/anchor";
 import { EventType } from "./idl-types";
 
 export type DecodedMeta = {
