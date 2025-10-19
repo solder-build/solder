@@ -1,20 +1,35 @@
-import { Indexer, type IndexerEvent } from "@solder-build/core";
+import { Indexer, RpcClient, type IndexerConfig, type IndexerEvent } from "@solder-build/core";
 import { type Idl } from "@coral-xyz/anchor";
 import pumpFunIdl from "../idls/pump-fun.json" with { type: "json" };
 import { tradesTable } from "../../solder.schema.js";
 import { PublicKey } from "@solana/web3.js";
+import type { PartialIndexerConfig } from "@solder-build/core/dist/indexer/indexer.js";
+
+
+const INDEXER_CONFIG: PartialIndexerConfig = {
+  rpcUrl: process.env.RPC_URL || "https://api.mainnet-beta.solana.com",
+  databaseUrl:
+    process.env.DATABASE_URL ||
+    "postgresql://postgres:password123@127.0.0.1:6500/app",
+  cursorKey: "my-indexer",  
+  enableUIProgress: true,
+};
+
+const getLatestBlockHeight = async (): Promise<number> => {
+  const rpc = new RpcClient({ endpoint: INDEXER_CONFIG.rpcUrl });
+  const latestBlockhash = await rpc.getLatestBlockhash();
+  return Number(latestBlockhash.lastValidBlockHeight);
+};
 
 export const initializeIndexer = async () => {
+
+  // fetch latest block height as default
+  if(INDEXER_CONFIG.startBlock === undefined) {
+    INDEXER_CONFIG.startBlock = await getLatestBlockHeight();
+  }
+
   /// configure your indexer here
-  const indexer = new Indexer({
-    startBlock: 373232483,
-    rpcUrl: process.env.RPC_URL || "https://api.mainnet-beta.solana.com",
-    databaseUrl:
-      process.env.DATABASE_URL ||
-      "postgresql://postgres:password123@127.0.0.1:6500/app",
-    cursorKey: "my-indexer",
-    enableUIProgress: true,
-  });
+  const indexer = new Indexer(INDEXER_CONFIG as IndexerConfig);
 
   /// configure your event listeners here
   await indexer.onEvent({

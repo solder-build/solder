@@ -13,6 +13,8 @@ export interface IndexerConfig {
   enableUIProgress?: boolean; // enable UI progress
 }
 
+export type PartialIndexerConfig = Partial<IndexerConfig> & Pick<IndexerConfig, "rpcUrl" >;
+
 export interface RegisteredProgram {
   programId: string;
   eventTypes: string[];
