@@ -21,7 +21,6 @@ import { type Idl } from "@coral-xyz/anchor";
 import pumpFunIdl from "../idls/pump-fun.json" with { type: "json" }; // 🔧 MODIFY: Import your program's IDL
 import { tradesTable } from "../../solder.schema.js"; // 🔧 MODIFY: Import your custom table schema
 import { PublicKey } from "@solana/web3.js";
-import type { PartialIndexerConfig } from "@solder-build/core/dist/indexer/indexer.js";
 
 
 /**
@@ -38,14 +37,13 @@ import type { PartialIndexerConfig } from "@solder-build/core/dist/indexer/index
  * - **startBlock**: Optionally set a specific block to start indexing from (defaults to latest)
  * - **enableUIProgress**: Set to false if you don't want the progress UI
  */
-const INDEXER_CONFIG: PartialIndexerConfig = {
-  rpcUrl: process.env.RPC_URL || "https://api.mainnet-beta.solana.com", // 🔧 MODIFY: Use your preferred RPC endpoint
+const INDEXER_CONFIG: Partial<IndexerConfig> = {
+  rpcUrl: process.env.RPC_URL, // 🔧 MODIFY: Use your preferred RPC endpoint
   databaseUrl:
-    process.env.DATABASE_URL ||
-    "postgresql://postgres:password123@127.0.0.1:6500/app", // 🔧 MODIFY: Use your actual database URL
+    process.env.DATABASE_URL, // 🔧 MODIFY: Use your actual database URL
   cursorKey: "my-indexer", // 🔧 MODIFY: Use a unique identifier for your indexer
   enableUIProgress: true, // 🔧 MODIFY: Set to false to disable progress UI
-} as const;
+};
 
 /**
  * Fetches the latest block height from the Solana RPC endpoint.
