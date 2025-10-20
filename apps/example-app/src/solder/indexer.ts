@@ -13,7 +13,6 @@ export const initializeIndexer = async () => {
       process.env.DATABASE_URL ||
       "postgresql://postgres:password123@127.0.0.1:6500/app",
     cursorKey: "my-indexer",
-    enableUIProgress: true,
   });
 
   /// configure your event listeners here
@@ -25,25 +24,25 @@ export const initializeIndexer = async () => {
       event: {
         parsed: {
           mint: PublicKey;
-          solAmount: bigint;
-          tokenAmount: bigint;
-          isBuy: boolean;
+          sol_amount: bigint;
+          token_amount: bigint;
+          is_buy: boolean;
           user: PublicKey;
           timestamp: bigint;
-          virtualSolReserves: bigint;
-          virtualTokenReserves: bigint;
+          virtual_sol_reserves: bigint;
+          virtual_token_reserves: bigint;
         };
       },
       db,
     ) => {
       await db.insert(tradesTable).values({
         mint: event.parsed.mint.toBase58(),
-        solAmount: event.parsed.solAmount.toString(),
-        tokenAmount: event.parsed.tokenAmount.toString(),
-        isBuy: event.parsed.isBuy,
+        solAmount: event.parsed.sol_amount.toString(),
+        tokenAmount: event.parsed.token_amount.toString(),
+        isBuy: event.parsed.is_buy,
         user: event.parsed.user.toBase58(),
-        virtualSolReserves: event.parsed.virtualSolReserves.toString(),
-        virtualTokenReserves: event.parsed.virtualTokenReserves.toString(),
+        virtualSolReserves: event.parsed.virtual_sol_reserves.toString(),
+        virtualTokenReserves: event.parsed.virtual_token_reserves.toString(),
         timestamp: new Date(Number(event.parsed.timestamp) * 1000),
       });
     },
