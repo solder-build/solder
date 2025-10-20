@@ -7,11 +7,12 @@ import { Idl } from "@coral-xyz/anchor";
 
 export interface IndexerConfig {
   startBlock: number;
-  rpcUrl: string;
+  rpcUrl?: string;
   databaseUrl?: string; // Postgres connection string
   cursorKey?: string; // namespaced cursor key
   enableUIProgress?: boolean; // enable UI progress
 }
+
 
 export interface RegisteredProgram {
   programId: string;
@@ -110,13 +111,13 @@ export class Indexer {
   };
 
   constructor(config: IndexerConfig) {
-    this.rpcClient = new RpcClient({ endpoint: config.rpcUrl });
+    this.rpcClient = new RpcClient({ endpoint: config.rpcUrl ?? "https://api.mainnet-beta.solana.com" });
     this.currentSlot = config.startBlock;
     this.cursorKey = config.cursorKey ?? "default";
     this.enableUIProgress = config.enableUIProgress ?? false;
     if (config.databaseUrl) {
       const pool = new Pool({
-        connectionString: process.env.DATABASE_URL,
+        connectionString: process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/postgres",
       });
       this.cursorStore = new CursorStore(config.databaseUrl);
       this.db = drizzle({ client: pool });
