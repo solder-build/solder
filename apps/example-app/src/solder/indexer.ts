@@ -45,7 +45,7 @@ const INDEXER_CONFIG: PartialIndexerConfig = {
     "postgresql://postgres:password123@127.0.0.1:6500/app", // 🔧 MODIFY: Use your actual database URL
   cursorKey: "my-indexer", // 🔧 MODIFY: Use a unique identifier for your indexer
   enableUIProgress: true, // 🔧 MODIFY: Set to false to disable progress UI
-};
+} as const;
 
 /**
  * Fetches the latest block height from the Solana RPC endpoint.
