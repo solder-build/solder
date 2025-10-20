@@ -101,13 +101,13 @@ export const initializeIndexer = async () => {
       event: {
         parsed: {
           mint: PublicKey;
-          solAmount: bigint;
-          tokenAmount: bigint;
-          isBuy: boolean;
+          sol_amount: bigint;
+          token_amount: bigint;
+          is_buy: boolean;
           user: PublicKey;
           timestamp: bigint;
-          virtualSolReserves: bigint;
-          virtualTokenReserves: bigint;
+          virtual_sol_reserves: bigint;
+          virtual_token_reserves: bigint;
         };
       }, // 🔧 MODIFY: Update this type to match your event structure
       db,
@@ -115,12 +115,12 @@ export const initializeIndexer = async () => {
       // 🔧 MODIFY: Replace this database insertion with your custom logic
       await db.insert(tradesTable).values({ // 🔧 MODIFY: Replace tradesTable with your table
         mint: event.parsed.mint.toBase58(),
-        solAmount: event.parsed.solAmount.toString(),
-        tokenAmount: event.parsed.tokenAmount.toString(),
-        isBuy: event.parsed.isBuy,
+        solAmount: event.parsed.sol_amount.toString(),
+        tokenAmount: event.parsed.token_amount.toString(),
+        isBuy: event.parsed.is_buy,
         user: event.parsed.user.toBase58(),
-        virtualSolReserves: event.parsed.virtualSolReserves.toString(),
-        virtualTokenReserves: event.parsed.virtualTokenReserves.toString(),
+        virtualSolReserves: event.parsed.virtual_sol_reserves.toString(),
+        virtualTokenReserves: event.parsed.virtual_token_reserves.toString(),
         timestamp: new Date(Number(event.parsed.timestamp) * 1000),
       });
     },

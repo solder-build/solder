@@ -7,7 +7,8 @@
     "start": "node dist/index.js",
     "generate": "drizzle-kit generate --config ./drizzle.config.ts",
     "push": "drizzle-kit push --config ./drizzle.config.ts",
-    "studio": "drizzle-kit studio --config ./drizzle.config.ts"
+    "studio": "drizzle-kit studio --config ./drizzle.config.ts",
+    "ci:migrate": "tsx src/solder/ci-migrate.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",

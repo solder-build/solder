@@ -28,10 +28,7 @@ export class CursorStore {
   async init(): Promise<void> {
     if (!this.pool) throw new Error("CursorStore not connected");
     await this.pool.query(
-      `
-        DROP TABLE IF EXISTS indexer_state;
-        
-        CREATE TABLE IF NOT EXISTS indexer_state (
+      `CREATE TABLE IF NOT EXISTS indexer_state (
         cursor_key TEXT PRIMARY KEY,
         last_slot BIGINT NOT NULL,
         last_block_hash TEXT NOT NULL,
@@ -42,6 +39,10 @@ export class CursorStore {
 
   async getCursor(cursorKey: string): Promise<CursorRecord | null> {
     if (!this.pool) throw new Error("CursorStore not connected");
+    
+    // Ensure table exists before querying
+    await this.ensureTableExists();
+    
     const res = await this.pool.query(
       `SELECT cursor_key, last_slot, last_block_hash, updated_at
        FROM indexer_state WHERE cursor_key = $1`,
@@ -59,6 +60,10 @@ export class CursorStore {
 
   async upsertCursor(cursorKey: string, lastSlot: number, lastBlockHash: string): Promise<void> {
     if (!this.pool) throw new Error("CursorStore not connected");
+    
+    // Ensure table exists before upserting
+    await this.ensureTableExists();
+    
     await this.pool.query(
       `INSERT INTO indexer_state (cursor_key, last_slot, last_block_hash)
        VALUES ($1, $2, $3)
@@ -67,6 +72,18 @@ export class CursorStore {
                      last_block_hash = EXCLUDED.last_block_hash,
                      updated_at = NOW()`,
       [cursorKey, lastSlot, lastBlockHash]
+    );
+  }
+
+  private async ensureTableExists(): Promise<void> {
+    if (!this.pool) throw new Error("CursorStore not connected");
+    await this.pool.query(
+      `CREATE TABLE IF NOT EXISTS indexer_state (
+        cursor_key TEXT PRIMARY KEY,
+        last_slot BIGINT NOT NULL,
+        last_block_hash TEXT NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )`
     );
   }
 }
