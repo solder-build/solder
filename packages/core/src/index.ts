@@ -11,3 +11,4 @@ export * from "./ui/progress";
 export * from "./ui/patch";
 export * from "./watcher/schema-sync";
 export * from "./watcher/schema-watcher";
+export * from "./watcher/ci-migrate";
