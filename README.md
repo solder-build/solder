@@ -10,8 +10,7 @@ _Build production-ready Solana indexers with auto-generated APIs in minutes, not
 
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
-
-[Website](https://solder.build) • [Documentation](https://solder.gitbook.io/solder-documentation) • [Examples](./apps/example-app)
+[Website](https://solder.build) • [Documentation](https://solder.gitbook.io/solder-documentation) • [Examples](./apps/example-app) • [Telegram](https://t.me/solder_official)
 
 **This project is currently in active development.** APIs, features, and documentation may change without notice. Use at your own risk.
 
