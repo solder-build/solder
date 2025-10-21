@@ -10,8 +10,7 @@ _Build production-ready Solana indexers with auto-generated APIs in minutes, not
 
 [![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](https://nodejs.org/)
-
-[Website](https://solder.build) • [Documentation](https://solder.gitbook.io/solder-documentation) • [Examples](./apps/example-app)
+[Website](https://solder.build) • [Documentation](https://solder.gitbook.io/solder-documentation) • [Examples](./apps/example-app) • [Telegram](https://t.me/solder_official)
 
 **This project is currently in active development.** APIs, features, and documentation may change without notice. Use at your own risk.
 
@@ -27,11 +26,20 @@ Solder is a comprehensive Solana backend framework that abstracts away the compl
 - 🗄️ **Built-in Database Support** - Integrated Drizzle ORM with PostgreSQL
 - 🔌 **Auto-generated APIs** - RESTful CRUD endpoints created automatically from your schema
 - 📝 **Type-safe** - Full TypeScript support with IDL-based type inference
+- 📊 **Real-time Progress UI** - Live terminal interface with performance metrics and health monitoring
 - ⚡ **Fast Development** - Go from zero to production-ready backend in minutes
+- 🔥 **Hot Schema Reloading** - Automatic database schema synchronization during development
 
 ## Quick Start
 
-### Option 1: Using the CLI (Recommended)
+### Requirements
+
+- Node.js >= 18
+- npm, pnpm, or yarn
+- PostgreSQL database
+- Solana RPC endpoint (optional: defaults to public mainnet RPC)
+
+### Solder App Setup
 
 The fastest way to get started with Solder is using the `create-solder` CLI:
 
@@ -56,46 +64,85 @@ cp .env.example .env
 # Update .env with your RPC URL and database connection string
 
 # Install dependencies (if you skipped during setup)
-pnpm install
+npm install
 
 # Generate database schema
-pnpm run generate
+npm run generate
 
 # Push schema to database
-pnpm run push
+npm run push
 
 # Start the indexer and API server
-pnpm run dev
+npm run dev
 ```
 
-### Option 2: Clone the Example App
+---
 
-Clone the repository and navigate to the example application:
+## Hot Schema Reloading
+
+Solder includes automatic schema synchronization during development, making it incredibly fast to iterate on your database schema.
+
+### How It Works
+
+When you run `pnpm run dev`, Solder automatically:
+
+1. **Watches** your `solder.schema.ts` file for changes
+2. **Syncs** schema changes to your database instantly (using `drizzle-kit push`)
+3. **Skips** migration file generation entirely in development mode
+
+### Benefits
+
+- **No manual pushes** - Schema changes sync automatically as you save files
+- **Fast iteration** - See your changes reflected immediately
+- **No migration files** - Keep your repo clean during development
+- **Production-ready** - Generate migrations when you're ready to deploy
+
+### Usage
+
+Just edit your `solder.schema.ts` file:
+
+```typescript
+// Add a new field to your table
+const trades = solderTable(
+  "trades",
+  {
+    id: serial("id").primaryKey(),
+    mint: varchar("mint", { length: 44 }).notNull(),
+    // Add this new field - it syncs automatically!
+    fee: integer("fee").default(0),
+    // ... other fields
+  },
+  // ... options
+);
+```
+
+**Save the file** and watch the console - your database updates automatically! 🎉
+
+### Disabling Hot Reloading
+
+If you need to disable automatic schema syncing:
 
 ```bash
-git clone https://github.com/your-org/solder.git
-cd solder/apps/example-app
-
-# Install dependencies
-pnpm install
-
-# Configure environment
-cp .env.example .env
-# Update .env with your configuration
-
-# Generate and push database schema
-pnpm run generate
-pnpm run push
-
-# Start the server
-pnpm run dev
+# Set NODE_ENV to production
+NODE_ENV=production pnpm run dev
 ```
 
-### Requirements
+### Production Deployments
 
-- Node.js >= 18
-- PostgreSQL database
-- Solana RPC endpoint (optional: defaults to public mainnet RPC)
+For production, generate proper migration files:
+
+```bash
+# Generate migration files
+pnpm run generate
+
+# Review and commit the migration files
+git add drizzle/
+
+# Apply migrations in production
+pnpm run push
+```
+
+**Important:** Migration files in the `drizzle/` folder are only needed for production deployments. In development, schema changes sync automatically without creating migration files.
 
 ---
 
@@ -339,6 +386,7 @@ const indexer = new Indexer({
   rpcUrl: process.env.RPC_URL, // Solana RPC endpoint
   databaseUrl: process.env.DATABASE_URL, // PostgreSQL connection string
   cursorKey: "my-indexer", // Unique identifier for this indexer
+  enableUIProgress: true, // Enable real-time progress UI
 });
 ```
 
@@ -422,6 +470,33 @@ console.log(status);
 // }
 ```
 
+### Progress UI
+
+When `enableUIProgress: true` is set, Solder provides a real-time terminal UI that displays:
+
+- **Chain Status**: Current blockchain status and sync progress
+- **Indexing Stats**: Real-time event processing statistics with RPS (requests per second)
+- **Event Table**: Live view of processed events with counts and performance metrics
+- **Progress Bar**: Visual progress indicator with ETA calculations
+- **Health Monitoring**: Database, WebSocket, and RPC connection status
+
+The progress UI automatically updates in place, providing a clean development experience without cluttering your terminal output.
+
+```typescript
+const indexer = new Indexer({
+  // ... other options
+  enableUIProgress: true, // Enables the real-time progress UI
+});
+```
+
+**Features:**
+- Live terminal updates without scrolling
+- Performance metrics (RPS, average processing time)
+- Health status indicators
+- Progress tracking with ETA
+- Event processing statistics
+- Responsive design that adapts to terminal width
+
 ### Complete Example
 
 ```typescript
@@ -435,6 +510,7 @@ export const initializeIndexer = async () => {
     rpcUrl: process.env.RPC_URL || "https://api.mainnet-beta.solana.com",
     databaseUrl: process.env.DATABASE_URL,
     cursorKey: "pump-fun-indexer",
+    enableUIProgress: true,
   });
 
   await indexer.onEvent({
