@@ -8,6 +8,14 @@ import { initializeIndexer, stopIndexer } from "./solder/indexer.js";
 
 const app = new Hono();
 
+// Auto-sync schema in development
+if (process.env.NODE_ENV !== "production") {
+  watchSchema({
+    schemaPath: "./solder.schema.ts",
+    drizzleConfigPath: "./drizzle.config.ts",
+  });
+}
+
 app.get("/", (c) => {
   return c.text("Hello Hono!");
 });

@@ -1,12 +1,20 @@
 import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { createCrudApp, Indexer, makeDb } from "@solder-build/core";
+import { createCrudApp, Indexer, makeDb, watchSchema } from "@solder-build/core";
 import { schema, tables } from "../solder.schema.js";
 import { solderConfig } from "../solder.config.js";
 import { initializeIndexer, stopIndexer } from "./solder/indexer.js";
 
 const app = new Hono();
+
+// Auto-sync schema in development
+if (process.env.NODE_ENV !== "production") {
+  watchSchema({
+    schemaPath: "./solder.schema.ts",
+    drizzleConfigPath: "./drizzle.config.ts",
+  });
+}
 
 app.get("/", (c) => {
   return c.text("Hello Hono!");
