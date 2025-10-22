@@ -84,9 +84,11 @@ export async function fetchIdl(options: FetchIdlOptions): Promise<void> {
     }
 
     console.log(chalk.yellow(`\n💡 Next steps:`));
-    console.log(chalk.yellow(`  1. Import the IDL in your indexer:`));
+    console.log(chalk.yellow(`  1. Convert IDL to TypeScript (optional but recommended):`));
+    console.log(chalk.gray(`     npx create-solder idl-to-ts ./${filepath}`));
+    console.log(chalk.yellow(`  2. Import the IDL in your indexer:`));
     console.log(chalk.gray(`     import ${shortId}Idl from "./idls/${filename}" with { type: "json" };`));
-    console.log(chalk.yellow(`  2. Use it in your event handler:`));
+    console.log(chalk.yellow(`  3. Use it in your event handler:`));
     console.log(chalk.gray(`     idl: ${shortId}Idl as unknown as Idl,`));
 
   } catch (error) {

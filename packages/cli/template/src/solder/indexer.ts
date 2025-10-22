@@ -16,11 +16,9 @@
  * @author Solder Team
  */
 
-import { Indexer, RpcClient, type IndexerConfig, type IndexerEvent } from "@solder-build/core";
-import { type Idl } from "@coral-xyz/anchor";
-import pumpFunIdl from "../idls/pump-fun.json" with { type: "json" }; // 🔧 MODIFY: Import your program's IDL
+import { Indexer, RpcClient, type ExtractEventNames, type IndexerConfig, type IndexerEvent } from "@solder-build/core";
 import { tradesTable } from "../../solder.schema.js"; // 🔧 MODIFY: Import your custom table schema
-import { PublicKey } from "@solana/web3.js";
+import { pumpFunIdl } from "../idls/pump-fun.js";
 
 
 /**
@@ -93,23 +91,12 @@ export const initializeIndexer = async () => {
   const indexer = new Indexer(INDEXER_CONFIG as IndexerConfig);
 
   /// configure your event listeners here
-  await indexer.onEvent({
+  await indexer.onEvent<typeof pumpFunIdl, "TradeEvent">({
     programId: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P", // 🔧 MODIFY: Replace with your program ID
-    idl: pumpFunIdl as unknown as Idl, // 🔧 MODIFY: Replace with your program's IDL
+    idl: pumpFunIdl, // 🔧 MODIFY: Replace with your program's IDL
     eventName: "TradeEvent", // 🔧 MODIFY: Replace with your event name
     handler: async (
-      event: {
-        parsed: {
-          mint: PublicKey;
-          sol_amount: bigint;
-          token_amount: bigint;
-          is_buy: boolean;
-          user: PublicKey;
-          timestamp: bigint;
-          virtual_sol_reserves: bigint;
-          virtual_token_reserves: bigint;
-        };
-      }, // 🔧 MODIFY: Update this type to match your event structure
+      event: IndexerEvent<typeof pumpFunIdl, "TradeEvent">, // 🔧 MODIFY: Update this type to match your event structure
       db,
     ) => {
       // 🔧 MODIFY: Replace this database insertion with your custom logic

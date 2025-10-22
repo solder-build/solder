@@ -7,6 +7,7 @@ import { fileURLToPath } from "url";
 import chalk from "chalk";
 import ora from "ora";
 import { fetchIdl } from "./fetch-idl.js";
+import { idlToTs } from "./idl-to-ts.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -300,6 +301,35 @@ async function fetchIdlCommand(args: string[]) {
   }
 }
 
+async function idlToTsCommand(args: string[]) {
+  showBanner();
+  console.log(chalk.bold.green("\n🔄 Convert IDL to TypeScript\n"));
+
+  // Parse arguments
+  const inputPath = args[0];
+  const outputPath = args[1]; // Optional output path
+
+  if (!inputPath) {
+    console.error(chalk.red("✖ Input file path is required"));
+    console.log(chalk.yellow("\nUsage:"));
+    console.log(chalk.cyan("  npx create-solder idl-to-ts <INPUT_FILE> [OUTPUT_FILE]"));
+    console.log(chalk.gray("\nExamples:"));
+    console.log(chalk.gray("  npx create-solder idl-to-ts ./src/idls/pump-fun.json"));
+    console.log(chalk.gray("  npx create-solder idl-to-ts ./src/idls/pump-fun.json ./src/types/pump-fun.ts"));
+    process.exit(1);
+  }
+
+  try {
+    await idlToTs({
+      inputPath,
+      outputPath,
+    });
+  } catch (error) {
+    console.error(chalk.red(`\n✖ ${error instanceof Error ? error.message : "Unknown error"}`));
+    process.exit(1);
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const command = args[0];
@@ -307,6 +337,8 @@ async function main() {
   // Handle different commands
   if (command === "fetch-idl") {
     await fetchIdlCommand(args.slice(1));
+  } else if (command === "idl-to-ts") {
+    await idlToTsCommand(args.slice(1));
   } else if (command === "create" || !command) {
     // Default to create command for backwards compatibility
     await createCommand();
@@ -315,6 +347,7 @@ async function main() {
     console.log(chalk.yellow("\nAvailable commands:"));
     console.log(chalk.cyan("  create     Create a new Solder project (default)"));
     console.log(chalk.cyan("  fetch-idl  Fetch IDL from a Solana program"));
+    console.log(chalk.cyan("  idl-to-ts  Convert IDL JSON to TypeScript"));
     console.log(chalk.yellow("\nUsage:"));
     console.log(chalk.cyan("  npx create-solder [command] [options]"));
     process.exit(1);

@@ -9,7 +9,8 @@
     "push": "drizzle-kit push --config ./drizzle.config.ts",
     "studio": "drizzle-kit studio --config ./drizzle.config.ts",
     "ci:migrate": "tsx src/solder/ci-migrate.ts",
-    "fetch-idl": "node ../../packages/cli/dist/index.js fetch-idl"
+    "fetch-idl": "node ../../packages/cli/dist/index.js fetch-idl",
+    "idl-to-ts": "node ../../packages/cli/dist/index.js idl-to-ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.32.1",
