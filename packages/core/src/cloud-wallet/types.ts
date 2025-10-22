@@ -5,7 +5,6 @@ import { PublicKey } from "@solana/web3.js";
  */
 export enum CloudWalletProvider {
   GCP = 'gcp',
-  AWS = 'aws',
   // Future providers
   // AZURE = 'azure',
 }
@@ -45,27 +44,11 @@ export interface GcpKmsConfig extends BaseCloudWalletConfig {
   };
 }
 
-/**
- * AWS KMS specific configuration
- */
-export interface AwsKmsConfig extends BaseCloudWalletConfig {
-  provider: CloudWalletProvider.AWS;
-  /** AWS region (e.g., 'us-east-1') */
-  region: string;
-  /** KMS key ID or ARN */
-  keyId: string;
-  /** AWS access key ID (optional, can use environment variables) */
-  accessKeyId?: string;
-  /** AWS secret access key (optional, can use environment variables) */
-  secretAccessKey?: string;
-  /** AWS session token (optional, for temporary credentials) */
-  sessionToken?: string;
-}
 
 /**
  * Union type for all provider configurations
  */
-export type CloudWalletConfig = GcpKmsConfig | AwsKmsConfig;
+export type CloudWalletConfig = GcpKmsConfig;
 
 /**
  * Signer interface compatible with @solana/kit
@@ -126,16 +109,3 @@ export class GcpKmsError extends CloudWalletError {
   }
 }
 
-/**
- * Error thrown when AWS KMS operations fail
- */
-export class AwsKmsError extends CloudWalletError {
-  constructor(
-    message: string,
-    operation: string,
-    originalError?: Error
-  ) {
-    super(message, CloudWalletProvider.AWS, operation, originalError);
-    this.name = 'AwsKmsError';
-  }
-}

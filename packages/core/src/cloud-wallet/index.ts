@@ -6,4 +6,3 @@ export { CloudWalletFactory, createCloudWallet } from './factory';
 
 // Export providers
 export { GcpKmsWallet } from './providers/gcp-kms';
-export { AwsKmsWallet } from './providers/aws-kms';

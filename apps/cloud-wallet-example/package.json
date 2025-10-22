@@ -8,10 +8,7 @@
     "dev": "tsc --watch",
     "airdrop:gcp": "node dist/gcp/airdrop.js",
     "sign-message:gcp": "node dist/gcp/sign-message.js",
-    "transfer:gcp": "node dist/gcp/simple-transfer.js",
-    "airdrop:aws": "node dist/aws/airdrop.js",
-    "sign-message:aws": "node dist/aws/sign-message.js",
-    "transfer:aws": "node dist/aws/simple-transfer.js"
+    "transfer:gcp": "node dist/gcp/simple-transfer.js"
   },
   "dependencies": {
     "@solder-build/core": "workspace:*",

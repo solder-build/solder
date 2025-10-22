@@ -1,6 +1,5 @@
 import { CloudWallet, CloudWalletConfig, CloudWalletProvider, CloudWalletError } from './types';
 import { GcpKmsWallet } from './providers/gcp-kms';
-import { AwsKmsWallet } from './providers/aws-kms';
 
 /**
  * CloudWallet factory for creating cloud-based wallets
@@ -15,9 +14,6 @@ export class CloudWalletFactory {
     switch (config.provider) {
       case CloudWalletProvider.GCP:
         return new GcpKmsWallet(config);
-      
-      case CloudWalletProvider.AWS:
-        return new AwsKmsWallet(config);
       
       default:
         throw new CloudWalletError(
@@ -43,10 +39,6 @@ export class CloudWalletFactory {
     switch (config.provider) {
       case CloudWalletProvider.GCP:
         this.validateGcpConfig(config as any);
-        break;
-      
-      case CloudWalletProvider.AWS:
-        this.validateAwsConfig(config as any);
         break;
       
       default:
@@ -137,41 +129,6 @@ export class CloudWalletFactory {
     }
   }
 
-  /**
-   * Validate AWS KMS configuration
-   */
-  private static validateAwsConfig(config: CloudWalletConfig): void {
-    if (config.provider !== CloudWalletProvider.AWS) {
-      return;
-    }
-
-    const awsConfig = config as any; // Type assertion for validation
-
-    if (!awsConfig.region) {
-      throw new CloudWalletError(
-        'AWS region is required',
-        CloudWalletProvider.AWS,
-        'validateAwsConfig'
-      );
-    }
-
-    if (!awsConfig.keyId) {
-      throw new CloudWalletError(
-        'AWS keyId is required',
-        CloudWalletProvider.AWS,
-        'validateAwsConfig'
-      );
-    }
-
-    // At least one authentication method must be available
-    if (!awsConfig.accessKeyId && !process.env.AWS_ACCESS_KEY_ID) {
-      throw new CloudWalletError(
-        'AWS credentials required. Provide accessKeyId/secretAccessKey or set AWS_ACCESS_KEY_ID environment variable',
-        CloudWalletProvider.AWS,
-        'validateAwsConfig'
-      );
-    }
-  }
 }
 
 /**
