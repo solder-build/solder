@@ -40,7 +40,7 @@ export interface OnEventConfig<
 > {
   programId: string;
   idl: TIdl;
-  eventName: string;
+  eventName: TEventName;
   handler: (
     event: IndexerEvent<TIdl, TEventName>,
     db: NodePgDatabase<Record<string, never>> & { $client: Pool },
@@ -49,12 +49,10 @@ export interface OnEventConfig<
 
 // Type to extract event names from IDL
 export type ExtractEventNames<TIdl extends Idl> = TIdl extends {
-  events: infer TEvents;
+  events?: readonly { name: infer TName }[];
 }
-  ? TEvents extends readonly any[]
-    ? TEvents[number] extends { name: infer TName }
-      ? TName
-      : never
+  ? TName extends string
+    ? TName
     : never
   : never;
 
