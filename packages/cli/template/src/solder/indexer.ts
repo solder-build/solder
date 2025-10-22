@@ -1,49 +1,126 @@
-import { Indexer, type IndexerEvent } from "@solder-build/core";
+/**
+ * @fileoverview Solana Indexer Implementation
+ * 
+ * This file contains the main indexer setup for listening to Solana program events
+ * and storing them in a PostgreSQL database. It's designed to be easily customizable
+ * for different Solana programs and event types.
+ * 
+ * @customization
+ * **Key areas users need to modify:**
+ * 
+ * 1. **Program Configuration**: Update the program ID, IDL, and event name
+ * 2. **Database Schema**: Replace the example tradesTable with your custom schema
+ * 3. **Event Handling**: Modify the event handler to process your specific event data
+ * 4. **Configuration**: Update RPC URL, database URL, and other indexer settings
+ * 
+ * @author Solder Team
+ */
+
+import { Indexer, RpcClient, type IndexerConfig, type IndexerEvent } from "@solder-build/core";
 import { type Idl } from "@coral-xyz/anchor";
-import pumpFunIdl from "../idls/pump-fun.json" with { type: "json" };
-import { tradesTable } from "../../solder.schema.js";
+import pumpFunIdl from "../idls/pump-fun.json" with { type: "json" }; // 🔧 MODIFY: Import your program's IDL
+import { tradesTable } from "../../solder.schema.js"; // 🔧 MODIFY: Import your custom table schema
 import { PublicKey } from "@solana/web3.js";
 
+
+/**
+ * Indexer configuration object.
+ * This configuration determines how the indexer connects to Solana RPC and the database,
+ * and controls various indexing behaviors.
+ * 
+ * @customization
+ * **Users should modify these values for their specific setup:**
+ * 
+ * - **rpcUrl**: Change to your preferred Solana RPC endpoint (Helius, QuickNode, etc.)
+ * - **databaseUrl**: Update with your actual PostgreSQL connection string
+ * - **cursorKey**: Use a unique identifier for your indexer (prevents conflicts with other indexers)
+ * - **startBlock**: Optionally set a specific block to start indexing from (defaults to latest)
+ * - **enableUIProgress**: Set to false if you don't want the progress UI
+ */
+const INDEXER_CONFIG: Partial<IndexerConfig> = {
+  rpcUrl: process.env.RPC_URL, // 🔧 MODIFY: Use your preferred RPC endpoint
+  databaseUrl:
+    process.env.DATABASE_URL, // 🔧 MODIFY: Use your actual database URL
+  cursorKey: "my-indexer", // 🔧 MODIFY: Use a unique identifier for your indexer
+  enableUIProgress: true, // 🔧 MODIFY: Set to false to disable progress UI
+};
+
+/**
+ * Fetches the latest block height from the Solana RPC endpoint.
+ * This function is used to determine the starting point for indexing when no startBlock is specified.
+ * 
+ * @returns Promise<number> The latest block height as a number
+ * @throws Will throw an error if the RPC call fails
+ */
+const getLatestBlockHeight = async (): Promise<number> => {
+  const rpc = new RpcClient({ endpoint: INDEXER_CONFIG.rpcUrl });
+  const latestBlockhash = await rpc.getLatestBlockhash();
+  return Number(latestBlockhash.lastValidBlockHeight);
+};
+
+/**
+ * Initializes and configures the Solana indexer with event listeners.
+ * This is the main function that sets up the indexer to listen for specific program events
+ * and store them in the database.
+ * 
+ * @returns Promise<Indexer> The configured and started indexer instance
+ * 
+ * @example
+ * ```typescript
+ * const indexer = await initializeIndexer();
+ * // Indexer is now running and listening for events
+ * ```
+ * 
+ * @customization
+ * **IMPORTANT: You should modify the following sections:**
+ * 
+ * 1. **Program ID** (line ~40): Change "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P" to your target program's ID
+ * 2. **IDL Import** (line ~3): Import your program's IDL file instead of pump-fun.json
+ * 3. **Event Name** (line ~42): Change "TradeEvent" to match your program's event name
+ * 4. **Event Handler** (lines ~44-68): Modify the handler to process your specific event data structure
+ * 5. **Database Schema** (line ~4): Import and use your custom table schema instead of tradesTable
+ * 6. **Event Data Structure** (lines ~39-51): Update the TypeScript types to match your event's structure
+ * 7. **Database Insert** (lines ~58-67): Modify the database insertion logic for your data structure
+ */
 export const initializeIndexer = async () => {
+
+  // fetch latest block height as default
+  if(INDEXER_CONFIG.startBlock === undefined) {
+    INDEXER_CONFIG.startBlock = await getLatestBlockHeight();
+  }
+
   /// configure your indexer here
-  const indexer = new Indexer({
-    startBlock: 373232483,
-    rpcUrl: process.env.RPC_URL || "https://api.mainnet-beta.solana.com",
-    databaseUrl:
-      process.env.DATABASE_URL ||
-      "postgresql://postgres:password123@127.0.0.1:6500/app",
-    cursorKey: "my-indexer",
-    enableUIProgress: true,
-  });
+  const indexer = new Indexer(INDEXER_CONFIG as IndexerConfig);
 
   /// configure your event listeners here
   await indexer.onEvent({
-    programId: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
-    idl: pumpFunIdl as unknown as Idl,
-    eventName: "TradeEvent",
+    programId: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P", // 🔧 MODIFY: Replace with your program ID
+    idl: pumpFunIdl as unknown as Idl, // 🔧 MODIFY: Replace with your program's IDL
+    eventName: "TradeEvent", // 🔧 MODIFY: Replace with your event name
     handler: async (
       event: {
         parsed: {
           mint: PublicKey;
-          solAmount: bigint;
-          tokenAmount: bigint;
-          isBuy: boolean;
+          sol_amount: bigint;
+          token_amount: bigint;
+          is_buy: boolean;
           user: PublicKey;
           timestamp: bigint;
-          virtualSolReserves: bigint;
-          virtualTokenReserves: bigint;
+          virtual_sol_reserves: bigint;
+          virtual_token_reserves: bigint;
         };
-      },
+      }, // 🔧 MODIFY: Update this type to match your event structure
       db,
     ) => {
-      await db.insert(tradesTable).values({
+      // 🔧 MODIFY: Replace this database insertion with your custom logic
+      await db.insert(tradesTable).values({ // 🔧 MODIFY: Replace tradesTable with your table
         mint: event.parsed.mint.toBase58(),
-        solAmount: event.parsed.solAmount.toString(),
-        tokenAmount: event.parsed.tokenAmount.toString(),
-        isBuy: event.parsed.isBuy,
+        solAmount: event.parsed.sol_amount.toString(),
+        tokenAmount: event.parsed.token_amount.toString(),
+        isBuy: event.parsed.is_buy,
         user: event.parsed.user.toBase58(),
-        virtualSolReserves: event.parsed.virtualSolReserves.toString(),
-        virtualTokenReserves: event.parsed.virtualTokenReserves.toString(),
+        virtualSolReserves: event.parsed.virtual_sol_reserves.toString(),
+        virtualTokenReserves: event.parsed.virtual_token_reserves.toString(),
         timestamp: new Date(Number(event.parsed.timestamp) * 1000),
       });
     },
@@ -55,4 +132,19 @@ export const initializeIndexer = async () => {
   return indexer;
 };
 
+/**
+ * Stops the running indexer gracefully.
+ * This function should be called when you want to shut down the indexer,
+ * typically during application shutdown or when restarting the indexer.
+ * 
+ * @param indexer - The Indexer instance to stop
+ * @returns Promise<void> Resolves when the indexer has been stopped
+ * 
+ * @example
+ * ```typescript
+ * const indexer = await initializeIndexer();
+ * // ... do some work ...
+ * await stopIndexer(indexer);
+ * ```
+ */
 export const stopIndexer = async (indexer: Indexer) => indexer.stop();

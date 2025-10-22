@@ -95,7 +95,7 @@ export const initializeIndexer = async () => {
   /// configure your event listeners here
   await indexer.onEvent({
     programId: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P", // 🔧 MODIFY: Replace with your program ID
-    idl: pumpFunIdl as unknown as Idl, // 🔧 MODIFY: Replace with your program's IDL
+    idl: pumpFunIdl as Idl, // 🔧 MODIFY: Replace with your program's IDL
     eventName: "TradeEvent", // 🔧 MODIFY: Replace with your event name
     handler: async (
       event: {

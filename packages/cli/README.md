@@ -55,6 +55,29 @@ The CLI will:
 3. Ask if you want to install dependencies automatically
 4. Set up a complete Solder project with example code
 
+### Fetching Program IDLs
+
+You can also fetch IDLs from Solana programs using the `fetch-idl` command:
+
+```bash
+# Fetch IDL from any Solana program
+npx create-solder fetch-idl <PROGRAM_ID>
+
+# Examples:
+npx create-solder fetch-idl 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P  # pump.fun
+npx create-solder fetch-idl JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4  # Jupiter
+npx create-solder fetch-idl 675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8  # Raydium
+
+# Use custom RPC endpoint
+npx create-solder fetch-idl <PROGRAM_ID> --rpc-url https://api.devnet.solana.com
+```
+
+This command will:
+- Fetch the IDL from the Solana program
+- Save it to `src/idls/{program-id}.json`
+- Show program information (instructions, events, accounts)
+- Provide next steps for using the IDL in your indexer
+
 **After creation:**
 
 ```bash
@@ -423,6 +446,29 @@ await indexer.onEvent({
   },
 });
 ```
+
+### Using Fetched IDLs
+
+After fetching an IDL with `npx create-solder fetch-idl <PROGRAM_ID>`, you can use it in your indexer:
+
+```typescript
+// Import the fetched IDL
+import jupiterIdl from "./idls/JUP6LkbZ.json" with { type: "json" };
+
+// Add event handler for the new program
+await indexer.onEvent({
+  programId: "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+  idl: jupiterIdl as unknown as Idl,
+  eventName: "SwapEvent", // or other events from the program
+  handler: async (event, db) => {
+    // Handle Jupiter swap events
+    console.log("Jupiter swap:", event.parsed);
+    // Add your custom logic here
+  },
+});
+```
+
+**Note:** Only Anchor programs have IDLs. Native Solana programs (like Token Program) and exchange addresses don't have IDLs available for fetching.
 
 ### Event Handler Signature
 

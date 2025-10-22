@@ -8,10 +8,11 @@
     "generate": "drizzle-kit generate --config ./drizzle.config.ts",
     "push": "drizzle-kit push --config ./drizzle.config.ts",
     "studio": "drizzle-kit studio --config ./drizzle.config.ts",
-    "ci:migrate": "tsx src/solder/ci-migrate.ts"
+    "ci:migrate": "tsx src/solder/ci-migrate.ts",
+    "fetch-idl": "node ../../packages/cli/dist/index.js fetch-idl"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "^0.31.1",
+    "@coral-xyz/anchor": "^0.32.1",
     "@hono/node-server": "^1.19.4",
     "@solder-build/core": "workspace:*",
     "@solana/web3.js": "^1.95.2",

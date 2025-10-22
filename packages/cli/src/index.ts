@@ -6,6 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import chalk from "chalk";
 import ora from "ora";
+import { fetchIdl } from "./fetch-idl.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,7 +42,7 @@ interface CliAnswers {
   installDeps: boolean;
 }
 
-async function main() {
+function showBanner() {
   console.log(
     chalk.bold.greenBright(
       `
@@ -54,6 +55,10 @@ async function main() {
   `,
     ),
   );
+}
+
+async function createCommand() {
+  showBanner();
   console.log(chalk.bold.green("\n🔧 Create Solder App\n"));
 
   const answers = await prompts(
@@ -254,6 +259,64 @@ PORT=4000
   } catch (error) {
     spinner.fail(chalk.red("Failed to create project"));
     console.error(error);
+    process.exit(1);
+  }
+}
+
+async function fetchIdlCommand(args: string[]) {
+  showBanner();
+  console.log(chalk.bold.green("\n📥 Fetch Solana Program IDL\n"));
+
+  // Parse arguments
+  const programId = args[0];
+  let rpcUrl: string | undefined;
+
+  // Simple argument parsing for --rpc-url
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === "--rpc-url" && i + 1 < args.length) {
+      rpcUrl = args[i + 1];
+      i++; // Skip the next argument since we consumed it
+    }
+  }
+
+  if (!programId) {
+    console.error(chalk.red("✖ Program ID is required"));
+    console.log(chalk.yellow("\nUsage:"));
+    console.log(chalk.cyan("  npx create-solder fetch-idl <PROGRAM_ID> [--rpc-url <RPC_URL>]"));
+    console.log(chalk.gray("\nExamples:"));
+    console.log(chalk.gray("  npx create-solder fetch-idl 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"));
+    console.log(chalk.gray("  npx create-solder fetch-idl 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P --rpc-url https://api.devnet.solana.com"));
+    process.exit(1);
+  }
+
+  try {
+    await fetchIdl({
+      programId,
+      rpcUrl,
+    });
+  } catch (error) {
+    console.error(chalk.red(`\n✖ ${error instanceof Error ? error.message : "Unknown error"}`));
+    process.exit(1);
+  }
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  const command = args[0];
+
+  // Handle different commands
+  if (command === "fetch-idl") {
+    await fetchIdlCommand(args.slice(1));
+  } else if (command === "create" || !command) {
+    // Default to create command for backwards compatibility
+    await createCommand();
+  } else {
+    console.error(chalk.red(`✖ Unknown command: ${command}`));
+    console.log(chalk.yellow("\nAvailable commands:"));
+    console.log(chalk.cyan("  create     Create a new Solder project (default)"));
+    console.log(chalk.cyan("  fetch-idl  Fetch IDL from a Solana program"));
+    console.log(chalk.yellow("\nUsage:"));
+    console.log(chalk.cyan("  npx create-solder [command] [options]"));
     process.exit(1);
   }
 }

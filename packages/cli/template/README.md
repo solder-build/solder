@@ -1,5 +1,7 @@
 ```
 npm install
+npm run generate
+npm run push
 npm run dev
 ```
 
