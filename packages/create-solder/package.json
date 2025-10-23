@@ -1,6 +1,6 @@
 {
   "name": "create-solder",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "description": "Create a new Solder indexer app",
   "type": "module",
   "bin": {
