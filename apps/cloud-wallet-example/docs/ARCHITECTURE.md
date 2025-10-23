@@ -4,7 +4,7 @@ This document describes the architecture and design decisions for Solder's Cloud
 
 ## Overview
 
-The Cloud Wallet system provides a unified interface for managing Solana wallets using cloud-based key management services. The current implementation supports Google Cloud Platform (GCP) Key Management Service (KMS) and Amazon Web Services (AWS) KMS, with plans for Azure Key Vault.
+The Cloud Wallet system provides a unified interface for managing Solana wallets using cloud-based key management services. The current implementation supports Google Cloud Platform (GCP) Key Management Service (KMS), with plans for Azure Key Vault.
 
 ## Architecture Diagram
 
@@ -17,16 +17,16 @@ The Cloud Wallet system provides a unified interface for managing Solana wallets
 │  │   Pattern       │    │   Interfaces    │                     │
 │  └─────────────────┘    └─────────────────┘                     │
 ├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────┐    ┌─────────────────┐    ┌─────────────┐  │
-│  │   GCP KMS       │    │   AWS KMS       │    │   Azure     │  │
-│  │   Provider      │    │   Provider      │    │   Provider  │  │
-│  │   (Current)     │    │   (Current)     │    │   (Future)  │  │
-│  └─────────────────┘    └─────────────────┘    └─────────────┘  │
+│  ┌─────────────────┐    ┌─────────────┐                         │
+│  │   GCP KMS       │    │   Azure     │                         │
+│  │   Provider      │    │   Provider  │                         │
+│  │   (Current)     │    │   (Future)  │                         │
+│  └─────────────────┘    └─────────────┘                         │
 ├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────┐    ┌─────────────────┐                     │
-│  │   GCP KMS       │    │   AWS KMS       │                     │
-│  │   API           │    │   API           │                     │
-│  └─────────────────┘    └─────────────────┘                     │
+│  ┌─────────────────┐                                            │
+│  │   GCP KMS       │                                            │
+│  │   API           │                                            │
+│  └─────────────────┘                                            │
 ├─────────────────────────────────────────────────────────────────┤
 │  ┌─────────────────┐                                            │
 │  │   @solana/kit   │                                            │
@@ -52,12 +52,6 @@ const gcpWallet = CloudWalletFactory.create({
   keyFilename: './service-account.json'
 });
 
-// AWS KMS
-const awsWallet = CloudWalletFactory.create({
-  provider: 'aws',
-  region: 'us-east-1',
-  keyId: 'arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012'
-});
 ```
 
 **Benefits:**
@@ -96,12 +90,6 @@ The GCP KMS implementation handles:
 - **Transaction Signing**: Signs Solana transaction messages
 - **Error Handling**: Provides detailed error information
 
-#### AWS KMS Provider (`AwsKmsWallet`)
-The AWS KMS implementation handles:
-- **Key Retrieval**: Fetches public key from AWS KMS and converts to Solana format
-- **Message Signing**: Signs arbitrary messages using AWS KMS SignCommand
-- **Transaction Signing**: Signs Solana transaction messages
-- **Error Handling**: Provides detailed error information with AWS context
 
 ## Cloud Provider Integration Flows
 
@@ -154,53 +142,6 @@ sequenceDiagram
     GcpKmsWallet-->>App: signature bytes
 ```
 
-### AWS KMS Integration Flow
-
-#### 1. Initialization
-
-```mermaid
-sequenceDiagram
-    participant App
-    participant Factory
-    participant AwsKmsWallet
-    participant AWS_KMS
-
-    App->>Factory: create(config)
-    Factory->>Factory: validateConfig()
-    Factory->>AwsKmsWallet: new(config)
-    AwsKmsWallet->>AWS_KMS: initialize client
-    AwsKmsWallet-->>Factory: wallet instance
-    Factory-->>App: wallet instance
-```
-
-#### 2. Public Key Retrieval
-
-```mermaid
-sequenceDiagram
-    participant App
-    participant AwsKmsWallet
-    participant AWS_KMS
-
-    App->>AwsKmsWallet: getPublicKey()
-    AwsKmsWallet->>AWS_KMS: GetPublicKeyCommand(keyId)
-    AWS_KMS-->>AwsKmsWallet: DER public key
-    AwsKmsWallet->>AwsKmsWallet: convert DER to Solana format
-    AwsKmsWallet-->>App: PublicKey
-```
-
-#### 3. Message Signing
-
-```mermaid
-sequenceDiagram
-    participant App
-    participant AwsKmsWallet
-    participant AWS_KMS
-
-    App->>AwsKmsWallet: signMessage(message)
-    AwsKmsWallet->>AWS_KMS: SignCommand(keyId, message, RAW)
-    AWS_KMS-->>AwsKmsWallet: signature
-    AwsKmsWallet-->>App: signature bytes
-```
 
 ## Key Design Decisions
 
@@ -285,15 +226,6 @@ sequenceDiagram
 ## Future Extensions
 
 ### 1. Additional Providers
-
-**AWS KMS Provider**:
-```typescript
-const wallet = CloudWalletFactory.create({
-  provider: 'aws',
-  region: 'us-east-1',
-  keyId: 'arn:aws:kms:us-east-1:123456789012:key/12345678-1234-1234-1234-123456789012'
-});
-```
 
 **Azure Key Vault Provider**:
 ```typescript

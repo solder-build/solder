@@ -1,7 +1,7 @@
 {
   "name": "cloud-wallet-example",
   "version": "1.0.0",
-  "description": "Proof of concept for Solder Cloud Wallet integration with GCP KMS and AWS KMS",
+  "description": "Proof of concept for Solder Cloud Wallet integration with GCP KMS",
   "type": "module",
   "scripts": {
     "build": "tsc",
@@ -28,7 +28,6 @@
     "solana",
     "cloud-wallet",
     "gcp-kms",
-    "aws-kms",
     "solder",
     "blockchain"
   ],

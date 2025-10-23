@@ -35,7 +35,6 @@
     "build": "tsc --outDir dist --project ./"
   },
   "dependencies": {
-    "@aws-sdk/client-kms": "^3.912.0",
     "@coral-xyz/anchor": "^0.31.1",
     "@google-cloud/kms": "^5.2.1",
     "@solana/compat": "^4.0.0",
