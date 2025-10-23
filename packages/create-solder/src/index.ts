@@ -41,7 +41,7 @@ interface CliAnswers {
   installDeps: boolean;
 }
 
-async function main() {
+function showBanner() {
   console.log(
     chalk.bold.greenBright(
       `
@@ -54,6 +54,10 @@ async function main() {
   `,
     ),
   );
+}
+
+async function createCommand() {
+  showBanner();
   console.log(chalk.bold.green("\n🔧 Create Solder App\n"));
 
   const answers = await prompts(
@@ -164,15 +168,17 @@ async function main() {
     const packageJsonPath = path.join(resolvedTargetPath, "package.json");
     const packageJson = await fs.readJson(packageJsonPath);
     packageJson.name = projectName;
-    // Set @solder-build/core version to match create-solder version
+    // Set @solder-build/core and solder-cli versions to match create-solder version
     // get current CLI package version by reading its own package.json
     try {
       const cliPackageJsonPath = path.join(__dirname, "..", "package.json");
       const cliPackageJson = await fs.readJson(cliPackageJsonPath);
       const cliVersion = cliPackageJson.version || "latest";
       packageJson.dependencies["@solder-build/core"] = `^${cliVersion}`;
+      packageJson.dependencies["solder-cli"] = `^${cliVersion}`;
     } catch (e) {
       packageJson.dependencies["@solder-build/core"] = "latest";
+      packageJson.dependencies["solder-cli"] = "latest";
     }
     await fs.writeJson(packageJsonPath, packageJson, { spaces: 2 });
 
@@ -254,6 +260,29 @@ PORT=4000
   } catch (error) {
     spinner.fail(chalk.red("Failed to create project"));
     console.error(error);
+    process.exit(1);
+  }
+}
+
+
+
+async function main() {
+  const args = process.argv.slice(2);
+  const command = args[0];
+
+  // Handle different commands
+  if (command === "create" || !command) {
+    // Default to create command for backwards compatibility
+    await createCommand();
+  } else {
+    console.error(chalk.red(`✖ Unknown command: ${command}`));
+    console.log(chalk.yellow("\nAvailable commands:"));
+    console.log(chalk.cyan("  create     Create a new Solder project (default)"));
+    console.log(chalk.yellow("\nUsage:"));
+    console.log(chalk.cyan("  npx create-solder [command] [options]"));
+    console.log(chalk.yellow("\nFor IDL tools, use:"));
+    console.log(chalk.cyan("  npx solder-cli fetch-idl <PROGRAM_ID>"));
+    console.log(chalk.cyan("  npx solder-cli idl-to-ts <INPUT_FILE>"));
     process.exit(1);
   }
 }

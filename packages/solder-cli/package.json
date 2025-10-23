@@ -1,0 +1,46 @@
+{
+  "name": "solder-cli",
+  "version": "0.1.20",
+  "description": "Solder CLI tools for IDL management",
+  "type": "module",
+  "bin": {
+    "solder-cli": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "@solder-build/core",
+    "solana",
+    "idl",
+    "anchor",
+    "cli"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Quantum3-Labs/solder.git",
+    "directory": "packages/solder-cli"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
+    "@solana/web3.js": "^1.95.2",
+    "chalk": "^5.3.0",
+    "ora": "^8.0.1",
+    "fs-extra": "^11.2.0",
+    "@solder-build/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.17",
+    "@types/fs-extra": "^11.0.4",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
