@@ -36,6 +36,7 @@
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
+    "@google-cloud/kms": "^5.2.1",
     "@solana/compat": "^4.0.0",
     "@solana/rpc": "^4.0.0",
     "@solana/kit": "^4.0.0",
