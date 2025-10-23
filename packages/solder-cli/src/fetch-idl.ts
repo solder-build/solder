@@ -52,13 +52,13 @@ export async function fetchIdl(options: FetchIdlOptions): Promise<void> {
       );
     }
 
-    // Generate filename from program ID (first 8 chars for readability)
-    const shortId = programId.slice(0, 8);
-    const filename = `${shortId}.ts`;
+    // Generate filename from IDL metadata name or fallback to program ID
+    const baseName = (idl as any).metadata?.name || (idl as any).name || programId.slice(0, 8);
+    const filename = `${baseName}.ts`;
     const filepath = path.join(outputDir, filename);
 
     // Generate TypeScript content directly
-    const tsContent = generateTypeScriptContent(idl, shortId);
+    const tsContent = generateTypeScriptContent(idl, baseName);
 
     // Save TypeScript file
     await fs.writeFile(filepath, tsContent, 'utf8');
@@ -87,11 +87,11 @@ export async function fetchIdl(options: FetchIdlOptions): Promise<void> {
       });
     }
 
-    const variableName = getVariableName(shortId);
+    const variableName = getVariableName(baseName);
 
     console.log(chalk.yellow(`\n💡 Next steps:`));
     console.log(chalk.yellow(`  1. Import the IDL in your indexer:`));
-    console.log(chalk.gray(`     import { ${variableName} } from "./idls/${shortId}.js";`));
+    console.log(chalk.gray(`     import { ${variableName} } from "./idls/${baseName}.js";`));
     console.log(chalk.yellow(`  2. Use it in your event handler with full type safety:`));
     console.log(chalk.gray(`     await indexer.onEvent<typeof ${variableName}, "EventName">({`));
     console.log(chalk.gray(`       idl: ${variableName},`));
