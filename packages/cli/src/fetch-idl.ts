@@ -4,6 +4,7 @@ import fs from "fs-extra";
 import path from "path";
 import chalk from "chalk";
 import ora from "ora";
+import { generateTypeScriptContent, getVariableName } from "./idl-to-ts.js";
 
 export interface FetchIdlOptions {
   programId: string;
@@ -53,13 +54,16 @@ export async function fetchIdl(options: FetchIdlOptions): Promise<void> {
 
     // Generate filename from program ID (first 8 chars for readability)
     const shortId = programId.slice(0, 8);
-    const filename = `${shortId}.json`;
+    const filename = `${shortId}.ts`;
     const filepath = path.join(outputDir, filename);
 
-    // Save IDL to file with pretty formatting
-    await fs.writeJson(filepath, idl, { spaces: 2 });
+    // Generate TypeScript content directly
+    const tsContent = generateTypeScriptContent(idl, shortId);
 
-    spinner.succeed(chalk.green(`✓ IDL saved to ${filepath}`));
+    // Save TypeScript file
+    await fs.writeFile(filepath, tsContent, 'utf8');
+
+    spinner.succeed(chalk.green(`✓ TypeScript IDL saved to ${filepath}`));
 
     // Show additional info
     console.log(chalk.cyan(`\nProgram ID: ${programId}`));
@@ -83,13 +87,17 @@ export async function fetchIdl(options: FetchIdlOptions): Promise<void> {
       });
     }
 
+    const variableName = getVariableName(shortId);
+
     console.log(chalk.yellow(`\n💡 Next steps:`));
-    console.log(chalk.yellow(`  1. Convert IDL to TypeScript (optional but recommended):`));
-    console.log(chalk.gray(`     npx create-solder idl-to-ts ./${filepath}`));
-    console.log(chalk.yellow(`  2. Import the IDL in your indexer:`));
-    console.log(chalk.gray(`     import ${shortId}Idl from "./idls/${filename}" with { type: "json" };`));
-    console.log(chalk.yellow(`  3. Use it in your event handler:`));
-    console.log(chalk.gray(`     idl: ${shortId}Idl as unknown as Idl,`));
+    console.log(chalk.yellow(`  1. Import the IDL in your indexer:`));
+    console.log(chalk.gray(`     import { ${variableName} } from "./idls/${shortId}.js";`));
+    console.log(chalk.yellow(`  2. Use it in your event handler with full type safety:`));
+    console.log(chalk.gray(`     await indexer.onEvent<typeof ${variableName}, "EventName">({`));
+    console.log(chalk.gray(`       idl: ${variableName},`));
+    console.log(chalk.gray(`       eventName: "EventName",`));
+    console.log(chalk.gray(`       ...`));
+    console.log(chalk.gray(`     });`));
 
   } catch (error) {
     spinner.fail(chalk.red("Failed to fetch IDL"));

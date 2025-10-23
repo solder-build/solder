@@ -66,7 +66,7 @@ export async function idlToTs(options: IdlToTsOptions): Promise<void> {
   }
 }
 
-function generateTypeScriptContent(idlData: any, baseName: string): string {
+export function generateTypeScriptContent(idlData: any, baseName: string): string {
   const variableName = getVariableName(baseName);
   
   // Convert the IDL data to a properly formatted TypeScript object
@@ -78,7 +78,7 @@ export const ${variableName} = ${idlString} as const satisfies Idl;
 `;
 }
 
-function getVariableName(baseName: string): string {
+export function getVariableName(baseName: string): string {
   // Convert kebab-case or snake_case to camelCase
   return baseName
     .replace(/[-_]/g, ' ')
