@@ -1,5 +1,7 @@
 import { RpcClient } from "../rpc/rpc";
 import { EventType, IdlEvent } from "../idl/idl-types";
+import { LegacyEventType, LegacyIdl } from "../idl/legacy-idl-types";
+import { isLegacyIdl } from "../idl/idl";
 import { CursorStore } from "./db";
 import { drizzle, NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -21,7 +23,7 @@ export interface RegisteredProgram {
 }
 
 export interface EventHandler<
-  TIdl extends Idl = Idl,
+  TIdl extends Idl | LegacyIdl = Idl,
   TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
 > {
   id: string;
@@ -35,7 +37,7 @@ export interface EventHandler<
 }
 
 export interface OnEventConfig<
-  TIdl extends Idl = Idl,
+  TIdl extends Idl | LegacyIdl = Idl,
   TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
 > {
   programId: string;
@@ -47,14 +49,19 @@ export interface OnEventConfig<
   ) => Promise<void> | void;
 }
 
-// Type to extract event names from IDL
-export type ExtractEventNames<TIdl extends Idl> = TIdl extends {
-  events?: readonly { name: infer TName }[];
-}
-  ? TName extends string
-    ? TName
-    : never
-  : never;
+// Type to extract event names from IDL (supports both legacy and current formats)
+export type ExtractEventNames<TIdl extends Idl | LegacyIdl> = 
+  TIdl extends LegacyIdl
+    ? TIdl extends { events?: readonly { name: infer TName }[] }
+      ? TName extends string
+        ? TName
+        : never
+      : never
+    : TIdl extends { events?: readonly { name: infer TName }[] }
+      ? TName extends string
+        ? TName
+        : never
+      : never;
 
 // Type to get event data from IDL
 export type ExtractEventData<
@@ -68,15 +75,17 @@ export type ExtractEventData<
     : never
   : never;
 
-// Type for the complete event object passed to handlers
+// Type for the complete event object passed to handlers (supports both legacy and current IDL)
 export interface IndexerEvent<
-  TIdl extends Idl = Idl,
+  TIdl extends Idl | LegacyIdl = Idl,
   TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
 > {
   name: string;
   contract: string;
   type: string;
-  parsed: EventType<TIdl, TEventName>;
+  parsed: TIdl extends LegacyIdl 
+    ? LegacyEventType<TIdl, TEventName>
+    : EventType<TIdl, TEventName>;
   timestamp: string;
   transaction: {
     hash: string;
@@ -145,10 +154,26 @@ export class Indexer {
 
   /**
    * Validate that the IDL contains the requested event types
+   * Supports both legacy and current IDL formats
    */
   private validateEventTypes(idl: any, eventTypes: string[]): void {
-    if (!idl || !idl.events) {
-      throw new Error("IDL must contain events array");
+    if (!idl) {
+      throw new Error("IDL is required");
+    }
+
+    // Check if it's a legacy IDL format
+    const isLegacy = isLegacyIdl(idl);
+    
+    if (isLegacy) {
+      // Legacy IDL validation
+      if (!idl.events || !Array.isArray(idl.events)) {
+        throw new Error("Legacy IDL must contain events array");
+      }
+    } else {
+      // Current IDL validation
+      if (!idl.events || !Array.isArray(idl.events)) {
+        throw new Error("IDL must contain events array");
+      }
     }
 
     const availableEvents = idl.events.map((event: any) => event.name);
@@ -184,7 +209,7 @@ export class Indexer {
    * @returns A function to remove the event handler
    */
   public async onEvent<
-    TIdl extends Idl,
+    TIdl extends Idl | LegacyIdl,
     TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
   >(config: OnEventConfig<TIdl, TEventName>): Promise<() => void> {
     const handlerId = `${config.programId}-${config.eventName}-${Date.now()}`;
@@ -472,14 +497,16 @@ export class Indexer {
 
   /**
    * Parse event data using the provided IDL for better type safety
+   * Supports both legacy and current IDL formats
    */
-  private parseEventWithIdl(event: any, idl: Idl): any {
+  private parseEventWithIdl(event: any, idl: Idl | LegacyIdl): any {
     try {
       // Find the event definition in the IDL
       if (!idl.events) {
         console.warn(`No events defined in IDL`);
         return event.parsed;
       }
+      
       const eventDefinition = idl.events.find(
         (e: any) => e.name === event.name,
       );

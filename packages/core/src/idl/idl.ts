@@ -1,6 +1,5 @@
-import bs58 from "bs58";
 import { utils, BorshCoder, Idl, BorshInstructionCoder, BorshEventCoder } from "@coral-xyz/anchor";
-import { EventType } from "./idl-types";
+import type { LegacyIdl } from "./legacy-idl-types";
 
 export type DecodedMeta = {
   contract: string;
@@ -122,4 +121,37 @@ export const decodeEvent = (data: string, programId: string, idl: Idl): DecodedE
   }
 
   return null;
+}
+
+// Legacy IDL detection and helper functions
+export function isLegacyIdl(idl: any): idl is LegacyIdl {
+  if (!idl || typeof idl !== "object") return false;
+  
+  // Check for legacy-specific fields
+  const hasLegacyInstruction = idl.instructions?.some(
+    (ix: any) => "discriminator" in ix || 
+                 ix.accounts?.some((acc: any) => "writable" in acc || "signer" in acc)
+  );
+  
+  return hasLegacyInstruction || "metadata" in idl || "address" in idl;
+}
+
+// Legacy IDL still uses same Borsh decoding, so existing functions work
+// but we can add explicit legacy variants if needed
+export function decodeLegacyInstruction(
+  data: string,
+  programId: string,
+  idl: LegacyIdl
+): DecodedInstruction | null {
+  // Reuse existing decodeInstruction since Borsh encoding is the same
+  return decodeInstruction(data, programId, idl as any);
+}
+
+export function decodeLegacyEvent(
+  data: string,
+  programId: string,
+  idl: LegacyIdl
+): DecodedEvent | null {
+  // Reuse existing decodeEvent since Borsh encoding is the same
+  return decodeEvent(data, programId, idl as any);
 }

@@ -2,6 +2,7 @@ import fs from "fs-extra";
 import path from "path";
 import chalk from "chalk";
 import ora from "ora";
+import { isLegacyIdl } from "@solder-build/core";
 
 export interface IdlToTsOptions {
   inputPath: string;
@@ -20,17 +21,20 @@ export async function idlToTs(options: IdlToTsOptions): Promise<void> {
     throw new Error(`Input file must be a JSON file: ${inputPath}`);
   }
 
-  // Determine output path
-  const finalOutputPath = outputPath || inputPath.replace('.json', '.ts');
+  // Read the IDL JSON file first to get the name for output path
+  const idlData = await fs.readJson(inputPath);
+  
+  // Generate the TypeScript content using metadata name if available
+  const baseName = idlData.metadata?.name || idlData.name || path.basename(inputPath, '.json');
+  
+  // Determine output path using the base name
+  const finalOutputPath = outputPath || path.join(path.dirname(inputPath), `${baseName}.ts`);
 
   const spinner = ora("Converting IDL to TypeScript...").start();
 
   try {
-    // Read the IDL JSON file
-    const idlData = await fs.readJson(inputPath);
-
-    // Generate the TypeScript content
-    const tsContent = generateTypeScriptContent(idlData, path.basename(inputPath, '.json'));
+    // Generate the TypeScript content using the base name we already determined
+    const tsContent = generateTypeScriptContent(idlData, baseName);
 
     // Write the TypeScript file
     await fs.writeFile(finalOutputPath, tsContent, 'utf8');
@@ -47,9 +51,14 @@ export async function idlToTs(options: IdlToTsOptions): Promise<void> {
     console.log(chalk.cyan(`Accounts: ${idlData.accounts?.length || 0}`));
 
     console.log(chalk.yellow(`\n💡 Usage:`));
-    console.log(chalk.gray(`  import { ${getVariableName(path.basename(inputPath, '.json'))} } from "./${path.basename(finalOutputPath, '.ts')}";`));
+    console.log(chalk.gray(`  import { ${getVariableName(baseName)} } from "./${path.basename(finalOutputPath, '.ts')}";`));
     console.log(chalk.gray(`  // Use with Anchor:`));
-    console.log(chalk.gray(`  idl: ${getVariableName(path.basename(inputPath, '.json'))} as unknown as Idl,`));
+    console.log(chalk.gray(`  idl: ${getVariableName(baseName)} as unknown as Idl,`));
+    
+    // Show format detection result
+    const isLegacy = isLegacyIdl(idlData);
+    console.log(chalk.cyan(`\n📋 IDL Format: ${isLegacy ? 'Legacy' : 'Current'}`));
+    console.log(chalk.cyan(`📦 Import: ${isLegacy ? '@project-serum/anchor' : '@coral-xyz/anchor'}`));
 
   } catch (error) {
     spinner.fail(chalk.red("Failed to convert IDL to TypeScript"));
@@ -69,10 +78,18 @@ export async function idlToTs(options: IdlToTsOptions): Promise<void> {
 export function generateTypeScriptContent(idlData: any, baseName: string): string {
   const variableName = getVariableName(baseName);
   
+  // Detect if this is a legacy IDL format
+  const isLegacy = isLegacyIdl(idlData);
+  
   // Convert the IDL data to a properly formatted TypeScript object
   const idlString = JSON.stringify(idlData, null, 2);
   
-  return `import type { Idl } from "@coral-xyz/anchor";
+  // Use appropriate import based on IDL format
+  const importStatement = isLegacy 
+    ? `import type { Idl } from "@project-serum/anchor";`
+    : `import type { Idl } from "@coral-xyz/anchor";`;
+  
+  return `${importStatement}
 
 export const ${variableName} = ${idlString} as const satisfies Idl;
 `;

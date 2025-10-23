@@ -1,47 +1,42 @@
 {
-  "name": "create-solder",
+  "name": "solder-cli",
   "version": "0.1.20",
-  "description": "Create a new Solder indexer app",
+  "description": "Solder CLI tools for IDL management",
   "type": "module",
   "bin": {
-    "create-solder": "./dist/index.js"
+    "solder-cli": "./dist/index.js"
   },
   "files": [
-    "dist",
-    "template"
+    "dist"
   ],
   "scripts": {
-    "sync-template": "node scripts/sync-template.mjs",
-    "prebuild": "pnpm run sync-template",
     "build": "tsc",
     "dev": "tsc --watch"
   },
   "keywords": [
     "@solder-build/core",
     "solana",
-    "indexer",
-    "blockchain",
-    "create-app",
+    "idl",
+    "anchor",
     "cli"
   ],
   "repository": {
     "type": "git",
     "url": "https://github.com/Quantum3-Labs/solder.git",
-    "directory": "packages/cli"
+    "directory": "packages/solder-cli"
   },
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "prompts": "^2.4.2",
-    "fs-extra": "^11.2.0",
+    "@coral-xyz/anchor": "^0.31.1",
+    "@solana/web3.js": "^1.95.2",
     "chalk": "^5.3.0",
     "ora": "^8.0.1",
-    "@coral-xyz/anchor": "^0.31.1",
-    "@solana/web3.js": "^1.95.2"
+    "fs-extra": "^11.2.0",
+    "@solder-build/core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.11.17",
-    "@types/prompts": "^2.4.9",
     "@types/fs-extra": "^11.0.4",
     "typescript": "^5.8.3"
   },

@@ -6,8 +6,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 import chalk from "chalk";
 import ora from "ora";
-import { fetchIdl } from "./fetch-idl.js";
-import { idlToTs } from "./idl-to-ts.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -170,15 +168,17 @@ async function createCommand() {
     const packageJsonPath = path.join(resolvedTargetPath, "package.json");
     const packageJson = await fs.readJson(packageJsonPath);
     packageJson.name = projectName;
-    // Set @solder-build/core version to match create-solder version
+    // Set @solder-build/core and solder-cli versions to match create-solder version
     // get current CLI package version by reading its own package.json
     try {
       const cliPackageJsonPath = path.join(__dirname, "..", "package.json");
       const cliPackageJson = await fs.readJson(cliPackageJsonPath);
       const cliVersion = cliPackageJson.version || "latest";
       packageJson.dependencies["@solder-build/core"] = `^${cliVersion}`;
+      packageJson.dependencies["solder-cli"] = `^${cliVersion}`;
     } catch (e) {
       packageJson.dependencies["@solder-build/core"] = "latest";
+      packageJson.dependencies["solder-cli"] = "latest";
     }
     await fs.writeJson(packageJsonPath, packageJson, { spaces: 2 });
 
@@ -264,92 +264,25 @@ PORT=4000
   }
 }
 
-async function fetchIdlCommand(args: string[]) {
-  showBanner();
-  console.log(chalk.bold.green("\n📥 Fetch Solana Program IDL\n"));
 
-  // Parse arguments
-  const programId = args[0];
-  let rpcUrl: string | undefined;
-
-  // Simple argument parsing for --rpc-url
-  for (let i = 1; i < args.length; i++) {
-    if (args[i] === "--rpc-url" && i + 1 < args.length) {
-      rpcUrl = args[i + 1];
-      i++; // Skip the next argument since we consumed it
-    }
-  }
-
-  if (!programId) {
-    console.error(chalk.red("✖ Program ID is required"));
-    console.log(chalk.yellow("\nUsage:"));
-    console.log(chalk.cyan("  npx create-solder fetch-idl <PROGRAM_ID> [--rpc-url <RPC_URL>]"));
-    console.log(chalk.gray("\nExamples:"));
-    console.log(chalk.gray("  npx create-solder fetch-idl 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"));
-    console.log(chalk.gray("  npx create-solder fetch-idl 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P --rpc-url https://api.devnet.solana.com"));
-    process.exit(1);
-  }
-
-  try {
-    await fetchIdl({
-      programId,
-      rpcUrl,
-    });
-  } catch (error) {
-    console.error(chalk.red(`\n✖ ${error instanceof Error ? error.message : "Unknown error"}`));
-    process.exit(1);
-  }
-}
-
-async function idlToTsCommand(args: string[]) {
-  showBanner();
-  console.log(chalk.bold.green("\n🔄 Convert IDL to TypeScript\n"));
-
-  // Parse arguments
-  const inputPath = args[0];
-  const outputPath = args[1]; // Optional output path
-
-  if (!inputPath) {
-    console.error(chalk.red("✖ Input file path is required"));
-    console.log(chalk.yellow("\nUsage:"));
-    console.log(chalk.cyan("  npx create-solder idl-to-ts <INPUT_FILE> [OUTPUT_FILE]"));
-    console.log(chalk.gray("\nExamples:"));
-    console.log(chalk.gray("  npx create-solder idl-to-ts ./src/idls/pump-fun.json"));
-    console.log(chalk.gray("  npx create-solder idl-to-ts ./src/idls/pump-fun.json ./src/types/pump-fun.ts"));
-    process.exit(1);
-  }
-
-  try {
-    await idlToTs({
-      inputPath,
-      outputPath,
-    });
-  } catch (error) {
-    console.error(chalk.red(`\n✖ ${error instanceof Error ? error.message : "Unknown error"}`));
-    process.exit(1);
-  }
-}
 
 async function main() {
   const args = process.argv.slice(2);
   const command = args[0];
 
   // Handle different commands
-  if (command === "fetch-idl") {
-    await fetchIdlCommand(args.slice(1));
-  } else if (command === "idl-to-ts") {
-    await idlToTsCommand(args.slice(1));
-  } else if (command === "create" || !command) {
+  if (command === "create" || !command) {
     // Default to create command for backwards compatibility
     await createCommand();
   } else {
     console.error(chalk.red(`✖ Unknown command: ${command}`));
     console.log(chalk.yellow("\nAvailable commands:"));
     console.log(chalk.cyan("  create     Create a new Solder project (default)"));
-    console.log(chalk.cyan("  fetch-idl  Fetch IDL from a Solana program"));
-    console.log(chalk.cyan("  idl-to-ts  Convert IDL JSON to TypeScript"));
     console.log(chalk.yellow("\nUsage:"));
     console.log(chalk.cyan("  npx create-solder [command] [options]"));
+    console.log(chalk.yellow("\nFor IDL tools, use:"));
+    console.log(chalk.cyan("  npx solder-cli fetch-idl <PROGRAM_ID>"));
+    console.log(chalk.cyan("  npx solder-cli idl-to-ts <INPUT_FILE>"));
     process.exit(1);
   }
 }
