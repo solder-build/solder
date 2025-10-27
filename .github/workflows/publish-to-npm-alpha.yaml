@@ -86,7 +86,9 @@ jobs:
         run: |
           cd packages/core
           pnpm run build
-          cd ../cli
+          cd ../create-solder
+          pnpm run build
+          cd ../solder-cli
           pnpm run build
 
       - name: Configure git
@@ -110,10 +112,24 @@ jobs:
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
       - name: Bump prerelease version for create-solder
-        id: bump_cli
+        id: bump_create_solder
         if: steps.workflow_checks.outputs.skip == 'false' && steps.workflow_checks.outputs.no_bump == 'false'
         run: |
-          cd packages/cli
+          cd packages/create-solder
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          echo "Current version: $CURRENT_VERSION"
+
+          npm version prerelease --preid=${{ github.event.inputs.prerelease_identifier }} --no-git-tag-version
+
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          echo "New version: $NEW_VERSION"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Bump prerelease version for solder-cli
+        id: bump_solder_cli
+        if: steps.workflow_checks.outputs.skip == 'false' && steps.workflow_checks.outputs.no_bump == 'false'
+        run: |
+          cd packages/solder-cli
           CURRENT_VERSION=$(node -p "require('./package.json').version")
           echo "Current version: $CURRENT_VERSION"
 
@@ -126,7 +142,7 @@ jobs:
       - name: Commit version bumps
         if: steps.workflow_checks.outputs.skip == 'false' && steps.workflow_checks.outputs.no_bump == 'false'
         run: |
-          git add packages/core/package.json packages/cli/package.json
+          git add packages/core/package.json packages/create-solder/package.json packages/solder-cli/package.json
           git commit -m "chore: bump versions to ${{ steps.bump_core.outputs.new_version }} [${{ github.event.inputs.prerelease_identifier }}] [skip ci]" || echo "No changes to commit"
           git push
 
@@ -139,10 +155,15 @@ jobs:
           echo "core_version=$CORE_VERSION" >> $GITHUB_OUTPUT
           echo "Core version: $CORE_VERSION"
 
-          cd ../cli
-          CLI_VERSION=$(node -p "require('./package.json').version")
-          echo "cli_version=$CLI_VERSION" >> $GITHUB_OUTPUT
-          echo "CLI version: $CLI_VERSION"
+          cd ../create-solder
+          CREATE_SOLDER_VERSION=$(node -p "require('./package.json').version")
+          echo "create_solder_version=$CREATE_SOLDER_VERSION" >> $GITHUB_OUTPUT
+          echo "Create-solder version: $CREATE_SOLDER_VERSION"
+
+          cd ../solder-cli
+          SOLDER_CLI_VERSION=$(node -p "require('./package.json').version")
+          echo "solder_cli_version=$SOLDER_CLI_VERSION" >> $GITHUB_OUTPUT
+          echo "Solder-cli version: $SOLDER_CLI_VERSION"
 
       - name: Publish @solder-build/core to NPM (with alpha tag)
         if: steps.workflow_checks.outputs.skip == 'false'
@@ -155,7 +176,15 @@ jobs:
       - name: Publish create-solder to NPM (with alpha tag)
         if: steps.workflow_checks.outputs.skip == 'false'
         run: |
-          cd packages/cli
+          cd packages/create-solder
+          npm publish --access public --tag ${{ github.event.inputs.prerelease_identifier }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish solder-cli to NPM (with alpha tag)
+        if: steps.workflow_checks.outputs.skip == 'false'
+        run: |
+          cd packages/solder-cli
           npm publish --access public --tag ${{ github.event.inputs.prerelease_identifier }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -163,8 +192,7 @@ jobs:
       - name: Create Git tags
         if: steps.workflow_checks.outputs.skip == 'false' && steps.workflow_checks.outputs.no_bump == 'false'
         run: |
-          git tag "core-v${{ steps.bump_core.outputs.new_version }}"
-          git tag "cli-v${{ steps.bump_cli.outputs.new_version }}"
+          git tag "v${{ steps.bump_core.outputs.new_version }}"
           git push --tags
 
       - name: Summary
@@ -174,13 +202,15 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ "${{ steps.workflow_checks.outputs.no_bump }}" == "true" ]; then
             echo "✅ **@solder-build/core** - v${{ steps.current_versions.outputs.core_version }} (no bump)" >> $GITHUB_STEP_SUMMARY
-            echo "✅ **create-solder** - v${{ steps.current_versions.outputs.cli_version }} (no bump)" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **create-solder** - v${{ steps.current_versions.outputs.create_solder_version }} (no bump)" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **solder-cli** - v${{ steps.current_versions.outputs.solder_cli_version }} (no bump)" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "Mode: **No version bump** (republished existing versions)" >> $GITHUB_STEP_SUMMARY
             echo "Prerelease type: **${{ github.event.inputs.prerelease_identifier }}**" >> $GITHUB_STEP_SUMMARY
           else
             echo "✅ **@solder-build/core** - v${{ steps.bump_core.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
-            echo "✅ **create-solder** - v${{ steps.bump_cli.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **create-solder** - v${{ steps.bump_create_solder.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **solder-cli** - v${{ steps.bump_solder_cli.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "Prerelease type: **${{ github.event.inputs.prerelease_identifier }}**" >> $GITHUB_STEP_SUMMARY
           fi
@@ -189,4 +219,5 @@ jobs:
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
           echo "npm install @solder-build/core@${{ github.event.inputs.prerelease_identifier }}" >> $GITHUB_STEP_SUMMARY
           echo "npx create-solder@${{ github.event.inputs.prerelease_identifier }}" >> $GITHUB_STEP_SUMMARY
+          echo "npm install solder-cli@${{ github.event.inputs.prerelease_identifier }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
