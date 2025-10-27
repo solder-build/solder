@@ -55,6 +55,60 @@ The CLI will:
 3. Ask if you want to install dependencies automatically
 4. Set up a complete Solder project with example code
 
+### Fetching Program IDLs
+
+You can also fetch IDLs from Solana programs using the `fetch-idl` command:
+
+```bash
+# Fetch IDL from any Solana program
+npx create-solder fetch-idl <PROGRAM_ID>
+
+# Examples:
+npx create-solder fetch-idl 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P  # pump.fun
+npx create-solder fetch-idl JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4  # Jupiter
+npx create-solder fetch-idl 675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8  # Raydium
+
+# Use custom RPC endpoint
+npx create-solder fetch-idl <PROGRAM_ID> --rpc-url https://api.devnet.solana.com
+```
+
+This command will:
+- Fetch the IDL from the Solana program
+- Save it to `src/idls/{program-id}.json`
+- Show program information (instructions, events, accounts)
+- Provide next steps for using the IDL in your indexer
+
+### Converting IDLs to TypeScript
+
+After fetching an IDL, you can convert it to a TypeScript file with proper typing using the `idl-to-ts` command:
+
+```bash
+# Convert a JSON IDL to TypeScript
+npx create-solder idl-to-ts ./src/idls/pump-fun.json
+
+# Result: Creates ./src/idls/pump-fun.ts with full type safety
+```
+
+This command will:
+- Read the JSON IDL file
+- Generate a TypeScript file in the same directory
+- Export the IDL as a typed const object with proper Anchor IDL typing
+- Provide type safety and autocomplete for the IDL structure
+
+**Generated output example:**
+```typescript
+import type { Idl } from "@coral-xyz/anchor";
+
+export const pumpFunIdl = {
+  "address": "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+  "metadata": { ... },
+  "instructions": [ ... ],
+  "accounts": [ ... ],
+  "events": [ ... ],
+  "types": [ ... ]
+} as const satisfies Idl;
+```
+
 **After creation:**
 
 ```bash
@@ -74,6 +128,30 @@ npm run generate
 npm run push
 
 # Start the indexer and API server
+npm run dev
+```
+
+### Complete Workflow Example
+
+Here's a complete workflow for working with a new Solana program:
+
+```bash
+# 1. Create a new Solder project
+npx create-solder my-indexer
+
+# 2. Navigate to your project
+cd my-indexer
+
+# 3. Fetch IDL from a Solana program
+npx create-solder fetch-idl 6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P
+
+# 4. Convert IDL to TypeScript for better type safety
+npx create-solder idl-to-ts ./src/idls/6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P.json
+
+# 5. Update your indexer to use the new IDL
+# Edit src/solder/indexer.ts to add event handlers
+
+# 6. Start your indexer
 npm run dev
 ```
 
@@ -424,6 +502,54 @@ await indexer.onEvent({
 });
 ```
 
+### Using Fetched IDLs
+
+After fetching an IDL with `npx create-solder fetch-idl <PROGRAM_ID>`, you can convert it to TypeScript for better type safety:
+
+```bash
+# Convert the fetched IDL to TypeScript
+npx create-solder idl-to-ts ./src/idls/JUP6LkbZ.json
+```
+
+Then use it in your indexer with full type safety:
+
+```typescript
+// Import the converted TypeScript IDL
+import { jupiterIdl } from "./idls/JUP6LkbZ.js";
+
+// Add event handler for the new program with full typing
+await indexer.onEvent<typeof jupiterIdl, "SwapEvent">({
+  programId: "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4",
+  idl: jupiterIdl,
+  eventName: "SwapEvent", // or other events from the program
+  handler: async (
+    event: IndexerEvent<typeof jupiterIdl, "SwapEvent">,
+    db,
+  ) => {
+    // Handle Jupiter swap events with full type safety
+    // event.parsed now has proper typing based on the IDL structure
+    console.log("Jupiter swap:", event.parsed);
+    
+    // Example: Access typed properties (these will have autocomplete and type checking)
+    // event.parsed.inputMint.toBase58()  // PublicKey methods available
+    // event.parsed.outputMint.toBase58() // Full type safety
+    // event.parsed.amountIn.toString()   // BigInt methods available
+    
+    // Add your custom logic here
+  },
+});
+```
+
+**Benefits of using `idl-to-ts`:**
+- **Type Safety**: Full TypeScript typing for IDL structures
+- **Autocomplete**: IDE support for IDL properties and methods
+- **Better Integration**: Works seamlessly with Solder's type system
+- **No Type Assertions**: No need for `as unknown as Idl` casting
+- **Proper Field Types**: `PublicKey` objects instead of strings, `BigInt` for numbers
+- **Event-Specific Typing**: `event.parsed` has correct types based on the specific event
+
+**Note:** Only Anchor programs have IDLs. Native Solana programs (like Token Program) and exchange addresses don't have IDLs available for fetching.
+
 ### Event Handler Signature
 
 ```typescript
@@ -501,9 +627,9 @@ const indexer = new Indexer({
 ### Complete Example
 
 ```typescript
-import { Indexer } from "@solder-build/core";
+import { Indexer, type IndexerEvent } from "@solder-build/core";
 import { tradesTable } from "./schema";
-import pumpFunIdl from "./idls/pump-fun.json";
+import { pumpFunIdl } from "./idls/pump-fun.js"; // Import from converted TypeScript file
 
 export const initializeIndexer = async () => {
   const indexer = new Indexer({
@@ -514,19 +640,23 @@ export const initializeIndexer = async () => {
     enableUIProgress: true,
   });
 
-  await indexer.onEvent({
+  await indexer.onEvent<typeof pumpFunIdl, "TradeEvent">({
     programId: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
     idl: pumpFunIdl,
     eventName: "TradeEvent",
-    handler: async (event, db) => {
+    handler: async (
+      event: IndexerEvent<typeof pumpFunIdl, "TradeEvent">,
+      db,
+    ) => {
+      // Full type safety - event.parsed has proper typing based on IDL
       await db.insert(tradesTable).values({
-        mint: event.parsed.mint.toBase58(),
-        solAmount: event.parsed.solAmount.toString(),
-        tokenAmount: event.parsed.tokenAmount.toString(),
-        isBuy: event.parsed.isBuy,
-        user: event.parsed.user.toBase58(),
-        virtualSolReserves: event.parsed.virtualSolReserves.toString(),
-        virtualTokenReserves: event.parsed.virtualTokenReserves.toString(),
+        mint: event.parsed.mint.toBase58(), // PublicKey methods available
+        solAmount: event.parsed.sol_amount.toString(), // BigInt methods available
+        tokenAmount: event.parsed.token_amount.toString(),
+        isBuy: event.parsed.is_buy, // Boolean type
+        user: event.parsed.user.toBase58(), // PublicKey methods available
+        virtualSolReserves: event.parsed.virtual_sol_reserves.toString(),
+        virtualTokenReserves: event.parsed.virtual_token_reserves.toString(),
         timestamp: new Date(Number(event.parsed.timestamp) * 1000),
       });
     },

@@ -1,6 +1,6 @@
 // Simple overridable primitives via generics (no module augmentation required)
 export type PrimitiveConfig<
-  PK = string,
+  PK = import("@solana/web3.js").PublicKey,
   Int = bigint,
   Str = string,
   Bool = boolean,
@@ -12,7 +12,15 @@ export type PrimitiveConfig<
   BoolType: Bool;
   BytesType: Bytes;
 };
-type DefaultPrimitives = PrimitiveConfig;
+
+// Default primitives for Anchor IDLs - use PublicKey for pubkey types
+type DefaultPrimitives = PrimitiveConfig<
+  import("@solana/web3.js").PublicKey,
+  bigint,
+  string,
+  boolean,
+  string
+>;
 
 // Base mapping from Anchor IDL scalar types to TS types
 export type IdlScalarToTs<T, P extends PrimitiveConfig = DefaultPrimitives> =
@@ -21,7 +29,7 @@ export type IdlScalarToTs<T, P extends PrimitiveConfig = DefaultPrimitives> =
   // numeric-like -> prefer bigint (overridable)
   T extends "u8" | "u16" | "u32" | "u64" | "u128" | "u256" | "i8" | "i16" | "i32" | "i64" | "i128" | "i256" ? P["IntegerType"] :
   // PublicKey represented as base58 string by default (overridable)
-  T extends "publicKey" ? P["PublicKeyType"] :
+  T extends "pubkey" | "publicKey" ? P["PublicKeyType"] :
   // bytes-like
   T extends "bytes" ? P["BytesType"] :
   unknown;
@@ -60,10 +68,12 @@ export type FieldsToObject<Fields extends readonly IdlField[], P extends Primiti
 };
 
 // Extract event by name from an Anchor IDL
-export type ExtractEvent<IDL extends { events: readonly any[] }, Name extends IDL["events"][number]["name"], P extends PrimitiveConfig = DefaultPrimitives> =
-  IDL["events"][number] extends infer E
-    ? E extends { name: Name; fields: readonly IdlField[] }
-      ? FieldsToObject<E["fields"], P>
+export type ExtractEvent<IDL extends { events: readonly any[]; types?: readonly any[] }, Name extends IDL["events"][number]["name"], P extends PrimitiveConfig = DefaultPrimitives> =
+  IDL extends { types: readonly any[] }
+    ? IDL["types"][number] extends infer T
+      ? T extends { name: Name; type: { kind: "struct"; fields: readonly IdlField[] } }
+        ? FieldsToObject<T["type"]["fields"], P>
+        : never
       : never
     : never;
 
