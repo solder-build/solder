@@ -26,6 +26,7 @@ Solder is a comprehensive Solana backend framework that abstracts away the compl
 - 🚀 **Indexer Abstraction** - Monitor Solana programs and events with minimal configuration
 - 🗄️ **Built-in Database Support** - Integrated Drizzle ORM with PostgreSQL
 - 🔌 **Auto-generated APIs** - RESTful CRUD endpoints created automatically from your schema
+- 🔐 **Cloud Wallet Integration** - Optional GCP KMS integration for secure message signing
 - 📝 **Type-safe** - Full TypeScript support with IDL-based type inference
 - 📊 **Real-time Progress UI** - Live terminal interface with performance metrics and health monitoring
 - ⚡ **Fast Development** - Go from zero to production-ready backend in minutes
@@ -39,6 +40,7 @@ Solder is a comprehensive Solana backend framework that abstracts away the compl
 - npm, pnpm, or yarn
 - PostgreSQL database
 - Solana RPC endpoint (optional: defaults to public mainnet RPC)
+- Google Cloud Project with KMS (optional: only if using cloud wallets)
 
 ### Solder App Setup
 
@@ -53,7 +55,8 @@ The CLI will:
 1. Prompt you for a project name
 2. Ask where you want to create the project
 3. Ask if you want to install dependencies automatically
-4. Set up a complete Solder project with example code
+4. Ask if you want to use GCP Cloud Wallets (optional)
+5. Set up a complete Solder project with example code
 
 **After creation:**
 
@@ -75,6 +78,78 @@ npm run push
 
 # Start the indexer and API server
 npm run dev
+```
+
+---
+
+## GCP Cloud Wallets Integration
+
+Solder now supports optional GCP Cloud Wallets integration for secure message signing using Google Cloud KMS. This feature is perfect for applications that need to sign transactions or messages without exposing private keys.
+
+### What You Get
+
+When you enable GCP Cloud Wallets during project creation, you get:
+
+- **Cloud Wallet Dependencies** - All necessary packages for GCP KMS integration
+- **Message Signing API** - Ready-to-use HonoJS endpoints for signing messages
+- **Environment Configuration** - Pre-configured environment variables for GCP setup
+- **Example Implementation** - Working code that demonstrates cloud wallet functionality
+
+### API Endpoints
+
+If you enable cloud wallets, your Solder app will include these endpoints:
+
+```bash
+# Sign a message with GCP KMS
+POST /api/sign-message
+{
+  "message": "Hello, Solana!"
+}
+
+# Check cloud wallet status
+GET /api/cloud-wallet/status
+```
+
+### Setup Requirements
+
+To use GCP Cloud Wallets, you'll need:
+
+1. **Google Cloud Project** with KMS enabled
+2. **Service Account** with KMS permissions
+3. **Crypto Key** created in Google Cloud KMS
+4. **Environment Variables** configured in your `.env` file
+
+### Example Usage
+
+```bash
+# Test the message signing endpoint
+curl -X POST http://localhost:4000/api/sign-message \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Test message for signing"}'
+
+# Check if cloud wallets are enabled
+curl http://localhost:4000/api/cloud-wallet/status
+```
+
+### Environment Variables
+
+When cloud wallets are enabled, you'll need to configure these environment variables in your `.env` file:
+
+```env
+# GCP Configuration
+GCP_PROJECT_ID=your-project-id
+GCP_LOCATION=global
+GCP_KEY_RING=your-key-ring
+GCP_KEY_NAME=your-key-name
+GCP_KEY_VERSION=1
+
+# Authentication (choose one method)
+# Method 1: Service Account JSON file
+GCP_KEY_FILENAME=./path/to/service-account-key.json
+
+# Method 2: Service Account credentials
+# GCP_CLIENT_EMAIL=your-service-account@project.iam.gserviceaccount.com
+# GCP_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 ```
 
 ---
