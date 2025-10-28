@@ -1,6 +1,6 @@
 {
   "name": "solder-cli",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "description": "Solder CLI tools for IDL management",
   "type": "module",
   "bin": {
@@ -10,6 +10,8 @@
     "dist"
   ],
   "scripts": {
+    "sync-version": "node scripts/sync-version.mjs",
+    "prebuild": "pnpm run sync-version",
     "build": "tsc",
     "dev": "tsc --watch"
   },
