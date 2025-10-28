@@ -1,6 +1,6 @@
 {
   "name": "solder-cli",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "description": "Solder CLI tools for IDL management",
   "type": "module",
   "bin": {
