@@ -128,12 +128,11 @@ export function isLegacyIdl(idl: any): idl is LegacyIdl {
   if (!idl || typeof idl !== "object") return false;
   
   // Check for legacy-specific fields
-  const hasLegacyInstruction = idl.instructions?.some(
-    (ix: any) => "discriminator" in ix || 
-                 ix.accounts?.some((acc: any) => "writable" in acc || "signer" in acc)
+  const hasModernInstruction = idl.instructions?.some(
+    (ix: any) => "discriminator" in ix 
   );
   
-  return hasLegacyInstruction || "metadata" in idl || "address" in idl;
+  return !(hasModernInstruction || "metadata" in idl || "address" in idl);
 }
 
 // Legacy IDL still uses same Borsh decoding, so existing functions work
