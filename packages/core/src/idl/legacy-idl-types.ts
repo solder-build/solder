@@ -62,10 +62,14 @@ export type LegacyIdl = {
 
 // Type extraction utilities
 export type LegacyEventNames<IDL> = 
-  IDL extends { events: readonly { name: infer N }[] } ? N : never;
+  IDL extends { events: readonly any[] }
+    ? IDL["events"][number]["name"]
+    : never;
 
 export type LegacyInstructionNames<IDL> = 
-  IDL extends { instructions: readonly { name: infer N }[] } ? N : never;
+  IDL extends { instructions: readonly any[] }
+    ? IDL["instructions"][number]["name"]
+    : never;
 
 // Extract event type from events array
 export type ExtractLegacyEvent<
@@ -92,18 +96,18 @@ export type ExtractLegacyInstructionArgs<
 // Main convenience types
 export type LegacyEventType<
   IDL,
-  Name extends LegacyEventNames<IDL> & string,
+  Name extends LegacyEventNames<IDL>,
   P extends PrimitiveConfig = DefaultPrimitives
 > = IDL extends { events: readonly any[] }
-  ? ExtractLegacyEvent<IDL, Name, P>
+  ? ExtractLegacyEvent<IDL, Name & string, P>
   : never;
 
 export type LegacyInstructionArgs<
   IDL,
-  Name extends LegacyInstructionNames<IDL> & string,
+  Name extends LegacyInstructionNames<IDL>,
   P extends PrimitiveConfig = DefaultPrimitives
 > = IDL extends { instructions: readonly any[] }
-  ? ExtractLegacyInstructionArgs<IDL, Name, P>
+  ? ExtractLegacyInstructionArgs<IDL, Name & string, P>
   : never;
 
 // Account structure types

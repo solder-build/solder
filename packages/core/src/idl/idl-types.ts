@@ -59,8 +59,12 @@ export type IdlLike = {
 };
 
 // Unions of names for autocomplete
-export type EventNames<IDL> = IDL extends { events: readonly { name: infer N }[] } ? N : never;
-export type InstructionNames<IDL> = IDL extends { instructions: readonly { name: infer N }[] } ? N : never;
+export type EventNames<IDL> = IDL extends { events: readonly any[] }
+  ? IDL["events"][number]["name"]
+  : never;
+export type InstructionNames<IDL> = IDL extends { instructions: readonly any[] }
+  ? IDL["instructions"][number]["name"]
+  : never;
 
 // Given IDL-like "fields" array -> build an object { name: resolved-type }
 export type FieldsToObject<Fields extends readonly IdlField[], P extends PrimitiveConfig = DefaultPrimitives> = {
@@ -70,36 +74,63 @@ export type FieldsToObject<Fields extends readonly IdlField[], P extends Primiti
 // Extract event by name from an Anchor IDL
 // Events are defined in the "events" array, but their type definitions are in the "types" array
 // We need to find the type in "types" that matches the event name
-export type ExtractEvent<IDL extends { events: readonly any[]; types?: readonly any[] }, Name extends IDL["events"][number]["name"], P extends PrimitiveConfig = DefaultPrimitives> =
+/**
+ * Extracts the type of an event by name from an Anchor IDL.
+ * Events are listed in IDL["events"], but their field structures are typically specified in IDL["types"].
+ * 
+ * - The IDL["events"] array contains objects with a "name": string.
+ * - The IDL["types"] array contains struct definitions, which may match event names.
+ * 
+ * Example: 
+ *  - In blueshift_anchor_escrow.ts and pump-fun.ts, there are event entries like:
+ *    { name: "TakeEvent", discriminator: [...] } in "events" and
+ *    { name: "TakeEvent", type: { kind: "struct", fields: [...] } } in "types".
+ *  - This utility gets the field mapping for a given event or returns never if not found.
+ * 
+ * Note: Prefer extracting from "types" as that's where event field shapes reside.
+ */
+// Helper to extract fields from a single type entry (distributive)
+type ExtractFieldsFromType<T, Name extends string, P extends PrimitiveConfig> =
+  T extends { name: Name; type: { kind: "struct"; fields: infer Fields } }
+    ? Fields extends readonly IdlField[]
+      ? FieldsToObject<Fields, P>
+      : never
+    : never;
+
+export type ExtractEvent<
+  IDL, 
+  Name extends string, 
+  P extends PrimitiveConfig = DefaultPrimitives
+> =
   IDL extends { types: readonly any[] }
-    ? Extract<IDL["types"][number], { name: Name }> extends { type: infer Type }
-      ? Type extends { kind: "struct"; fields: readonly IdlField[] }
-        ? FieldsToObject<Type["fields"], P>
+    ? ExtractFieldsFromType<IDL["types"][number], Name, P>
+    : never;
+
+// Extract instruction args by instruction name from an Anchor IDL
+export type ExtractInstructionArgs<IDL, Name extends string, P extends PrimitiveConfig = DefaultPrimitives> =
+  IDL extends { instructions: readonly any[] }
+    ? IDL["instructions"][number] extends infer I
+      ? I extends { name: Name; args: readonly IdlField[] }
+        ? FieldsToObject<I["args"], P>
         : never
       : never
     : never;
 
-// Extract instruction args by instruction name from an Anchor IDL
-export type ExtractInstructionArgs<IDL extends { instructions: readonly any[] }, Name extends IDL["instructions"][number]["name"], P extends PrimitiveConfig = DefaultPrimitives> =
-  IDL["instructions"][number] extends infer I
-    ? I extends { name: Name; args: readonly IdlField[] }
-      ? FieldsToObject<I["args"], P>
-      : never
-    : never;
-
 // Convenience aliases constrained by name unions for autocomplete
-export type EventType<IDL, Name extends EventNames<IDL> & string, P extends PrimitiveConfig = DefaultPrimitives> =
-  IDL extends { events: readonly any[] }
-    ? ExtractEvent<IDL, Extract<Name, IDL["events"][number]["name"] & string>, P>
-    : never;
+export type EventType<
+  IDL,
+  Name extends EventNames<IDL>,
+  P extends PrimitiveConfig = DefaultPrimitives
+> = ExtractEvent<IDL, Name & string, P>;
 
-export type InstructionArgs<IDL, Name extends InstructionNames<IDL> & string, P extends PrimitiveConfig = DefaultPrimitives> =
-  IDL extends { instructions: readonly any[] }
-    ? ExtractInstructionArgs<IDL, Extract<Name, IDL["instructions"][number]["name"] & string>, P>
-    : never;
+export type InstructionArgs<IDL, Name extends InstructionNames<IDL>, P extends PrimitiveConfig = DefaultPrimitives> =
+  ExtractInstructionArgs<IDL, Name & string, P>;
 
 // Runtime helper to tag a decoded payload with its inferred type without transforming it
-export function asEventParams<IDL, N extends EventNames<IDL> & string>(
+export function asEventParams<
+  IDL,
+  N extends EventNames<IDL>
+>(
   _idl: IDL,
   _name: N,
   payload: unknown
