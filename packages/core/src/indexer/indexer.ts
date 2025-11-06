@@ -51,7 +51,7 @@ export interface OnEventConfig<
 
 // Type to extract event names from IDL (supports both legacy and current formats)
 export type ExtractEventNames<TIdl extends Idl | LegacyIdl> = 
-  TIdl extends LegacyIdl
+  [TIdl] extends [LegacyIdl]
     ? TIdl extends { events?: readonly { name: infer TName }[] }
       ? TName extends string
         ? TName
@@ -83,9 +83,11 @@ export interface IndexerEvent<
   name: string;
   contract: string;
   type: string;
-  parsed: TIdl extends LegacyIdl 
-    ? LegacyEventType<TIdl, TEventName>
-    : EventType<TIdl, TEventName>;
+  parsed: TIdl extends Idl
+    ? EventType<TIdl, TEventName>
+    : TIdl extends LegacyIdl 
+      ? LegacyEventType<TIdl, TEventName>
+      : never;
   timestamp: string;
   transaction: {
     hash: string;
