@@ -50,9 +50,9 @@ export type ResolveIdlType<T, P extends PrimitiveConfig = DefaultPrimitives> =
   unknown;
 
 // IDL shapes (minimal) for typing
-export type IdlField = { name: string; type: any };
-export type IdlEvent = { name: string; fields: readonly IdlField[] };
-export type IdlInstruction = { name: string; args: readonly IdlField[] };
+export type IdlField = { name: string; type: any, discriminator?: number[] };
+export type IdlEvent = { name: string; fields: readonly IdlField[], discriminator?: number[] };
+export type IdlInstruction = { name: string; args: readonly IdlField[], discriminator?: number[]  };
 export type IdlLike = {
   events?: readonly IdlEvent[];
   instructions?: readonly IdlInstruction[];
@@ -68,11 +68,13 @@ export type FieldsToObject<Fields extends readonly IdlField[], P extends Primiti
 };
 
 // Extract event by name from an Anchor IDL
+// Events are defined in the "events" array, but their type definitions are in the "types" array
+// We need to find the type in "types" that matches the event name
 export type ExtractEvent<IDL extends { events: readonly any[]; types?: readonly any[] }, Name extends IDL["events"][number]["name"], P extends PrimitiveConfig = DefaultPrimitives> =
   IDL extends { types: readonly any[] }
-    ? IDL["types"][number] extends infer T
-      ? T extends { name: Name; type: { kind: "struct"; fields: readonly IdlField[] } }
-        ? FieldsToObject<T["type"]["fields"], P>
+    ? Extract<IDL["types"][number], { name: Name }> extends { type: infer Type }
+      ? Type extends { kind: "struct"; fields: readonly IdlField[] }
+        ? FieldsToObject<Type["fields"], P>
         : never
       : never
     : never;
