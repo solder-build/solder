@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = [
+    "src/indexer/stream-core",
+    "src/indexer/native-stream",
+]
+
+[workspace.dependencies]
+yellowstone-vixen = "0.5.1"
+yellowstone-vixen-core = "0.5.1"
+solana-pubkey = "2.1.0"
+base64 = "0.22"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+

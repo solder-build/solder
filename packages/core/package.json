@@ -6,10 +6,37 @@
   "author": "",
   "type": "commonjs",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Quantum3-Labs/solder.git",
+    "directory": "packages/core"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "index.node"
+  ],
+  "keywords": [
+    "solana",
+    "indexer",
+    "blockchain",
+    "web3",
+    "database",
+    "api",
+    "hono",
+    "drizzle"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsc --watch --outDir dist --project ./",
-    "build": "tsc --outDir dist --project ./"
+    "build": "pnpm build:ts && pnpm build:native",
+    "build:ts": "tsc --outDir dist --project ./",
+    "build:native": "cargo build --release -p vixen-indexer-node --manifest-path ./src/indexer/native-stream/Cargo.toml && node scripts/copy-node-addon.js",
+    "build:native:dev": "cargo build -p vixen-indexer-node --manifest-path ./src/indexer/native-stream/Cargo.toml && node scripts/copy-node-addon.js"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
