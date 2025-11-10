@@ -14,21 +14,21 @@ export interface IndexerConfig {
 export interface RegisteredProgram {
   programId: string;
   eventTypes: string[];
-  idl: any; // Anchor IDL object
+  idl: Idl;
 }
 
 export interface EventHandler<TIdl extends Idl = Idl, TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>> {
   id: string;
   programId: string;
   idl: TIdl;
-  eventName: string;
+  eventName: TEventName;
   handler: (event: IndexerEvent<TIdl, TEventName>) => Promise<void> | void;
 }
 
 export interface OnEventConfig<TIdl extends Idl = Idl, TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>> {
   programId: string;
   idl: TIdl;
-  eventName: string;
+  eventName: TEventName;
   handler: (event: IndexerEvent<TIdl, TEventName>) => Promise<void> | void;
 }
 

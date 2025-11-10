@@ -87,11 +87,11 @@ export class RustIndexer {
       id: handlerId,
       programId: config.programId,
       idl: config.idl,
-      eventName: config.eventName as string,
-      handler: config.handler as any,
+      eventName: config.eventName,
+      handler: config.handler,
     };
     
-    this.eventHandlers.set(handlerId, handler as unknown as EventHandler<any>);
+    this.eventHandlers.set(handlerId, handler);
 
     return () => {
       this.eventHandlers.delete(handlerId);
