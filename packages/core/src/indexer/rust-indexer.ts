@@ -1,11 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Idl } from "@coral-xyz/anchor";
-import type { LegacyIdl } from "../idl/legacy-idl-types";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { CursorStore } from "./db";
-import type { IndexerConfig, OnEventConfig, EventHandler, ExtractEventNames } from "./indexer";
+import type { OnEventConfig, EventHandler, ExtractEventNames } from "./indexer";
 
 function loadNativeAddon(): any {
   const candidates = [
@@ -33,7 +32,7 @@ try {
   nativeAddon = null;
 }
 
-export interface RustIndexerConfig extends IndexerConfig {
+export interface RustIndexerConfig {
   mode: 'grpc';
   databaseUrl: string;
   grpcEndpoint: string;
@@ -77,9 +76,9 @@ export class RustIndexer {
   }
 
   async onEvent<
-    TIdl extends Idl | LegacyIdl,
+    TIdl extends Idl,
     TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
-  >(
+  >( 
     config: OnEventConfig<TIdl, TEventName>
   ): Promise<() => void> {
     const handlerId = `${config.programId}-${config.eventName}-${Date.now()}`;
@@ -246,10 +245,13 @@ export class RustIndexer {
 
     const eventName = decoded.name;
 
-    const handlerId = `${programId}-${eventName}`;
-    const handler = this.eventHandlers.get(handlerId);
+    // Find all handlers that match this programId and eventName
+    // (handlers are stored with timestamp in key, so we need to search by programId and eventName)
+    const matchingHandlers = Array.from(this.eventHandlers.values()).filter(
+      (handler) => handler.programId === programId && handler.eventName === eventName
+    );
 
-    if (!handler) {
+    if (matchingHandlers.length === 0) {
       return;
     }
 
@@ -272,7 +274,10 @@ export class RustIndexer {
       eventName: eventName as any,
     };
 
-    await handler.handler(eventData as any, this.db);
+    // Call all matching handlers
+    await Promise.all(
+      matchingHandlers.map((handler) => handler.handler(eventData as any))
+    );
   }
 
   stop(): void {

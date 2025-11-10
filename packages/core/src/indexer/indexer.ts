@@ -2,7 +2,7 @@ import { Connection } from "@solana/web3.js";
 import { RpcClient } from "../rpc/rpc";
 import { EventType, IdlEvent } from "../idl/idl-types";
 import { CursorStore } from "./db";
-import { Idl } from "@project-serum/anchor";
+import { Idl } from "@coral-xyz/anchor";
 
 export interface IndexerConfig {
   startBlock: number;
@@ -356,7 +356,7 @@ export class Indexer {
   private parseEventWithIdl(event: any, idl: Idl): any {
     try {
       // Find the event definition in the IDL
-      const eventDefinition = idl.events.find((e: IdlEvent) => e.name === event.name);
+      const eventDefinition = idl?.events?.find((e: IdlEvent) => e.name === event.name);
       if (!eventDefinition) {
         console.warn(`Event definition not found in IDL for ${event.name}`);
         return event.parsed;

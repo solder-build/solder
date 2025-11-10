@@ -12,6 +12,7 @@ import {
   isParsedInstruction,
   isPartiallyDecodedInstruction,
 } from "../utils/block.js";
+import { Idl } from "@coral-xyz/anchor";
 
 export type RpcClientOptions = {
   endpoint?: string;
@@ -75,7 +76,7 @@ export class RpcClient {
 
   async getBlockWithInstructions(
     slot: number,
-    filter: { programIds: string[] },
+    filter: { programIds: string[], programIdls: Map<string, Idl> },
   ): Promise<{
     block_number: number;
     block_hash: string;
@@ -113,7 +114,7 @@ export class RpcClient {
                 return { index, programId, parsed: instr.parsed };
               }
               if (isPartiallyDecodedInstruction(instr)) {
-                const decoded = decodeInstruction(instr.data, programId);
+                const decoded = decodeInstruction(instr.data, programId, filter.programIdls.get(programId));
                 return decoded == null
                   ? null
                   : { index, programId, parsed: decoded };
@@ -146,7 +147,7 @@ export class RpcClient {
 
   async getBlockWithEvents(
     slot: number,
-    filter: { programIds: string[] },
+    filter: { programIds: string[], programIdls: Map<string, any> },
   ): Promise<{
     block_number: number;
     block_hash: string;
@@ -181,7 +182,7 @@ export class RpcClient {
             filter,
             ({ index, programId, instr }) => {
               if (isPartiallyDecodedInstruction(instr)) {
-                const decoded = decodeEvent(instr.data, programId);
+                const decoded = decodeEvent(instr.data, programId, filter.programIdls.get(programId));
                 return decoded ? { index, programId, event: decoded } : null;
               }
               return null;
