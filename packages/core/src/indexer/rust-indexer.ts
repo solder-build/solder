@@ -41,6 +41,7 @@ export interface RustIndexerConfig extends IndexerConfig {
   subscriberName?: string;
   commitmentLevel?: 'processed' | 'confirmed' | 'finalized';
   fromSlot?: number;
+  cursorKey?: string;
 }
 
 export class RustIndexer {
@@ -107,7 +108,7 @@ export class RustIndexer {
       this.setupDatabase(this.config.databaseUrl);
     }
 
-    let fromSlot: number | undefined = this.config.fromSlot ?? this.config.startBlock;
+    let fromSlot: number | undefined = this.config.fromSlot;
 
     if (!this.db) {
       throw new Error("Database not initialized. Provide databaseUrl when using the gRPC indexer.");
