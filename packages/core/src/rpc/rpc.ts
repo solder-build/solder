@@ -147,7 +147,7 @@ export class RpcClient {
 
   async getBlockWithEvents(
     slot: number,
-    filter: { programIds: string[], programIdls: Map<string, any> },
+    filter: { programIds: string[], programIdls: Map<string, Idl> },
   ): Promise<{
     block_number: number;
     block_hash: string;

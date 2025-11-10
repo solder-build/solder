@@ -1,4 +1,4 @@
-{
+const PumpFunLegacyIdl = {
   "version": "0.1.0",
   "name": "pump",
   "instructions": [
@@ -659,4 +659,6 @@
   "metadata": {
     "address": "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"
   }
-}
+} as const;
+
+export default PumpFunLegacyIdl;

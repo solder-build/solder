@@ -1,10 +1,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { Idl } from "@coral-xyz/anchor";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { CursorStore } from "./db";
 import type { OnEventConfig, EventHandler, ExtractEventNames } from "./indexer";
+import type { AnchorIdl } from "../idl/idl-types";
 
 function loadNativeAddon(): any {
   const candidates = [
@@ -76,7 +76,7 @@ export class RustIndexer {
   }
 
   async onEvent<
-    TIdl extends Idl,
+    TIdl extends AnchorIdl,
     TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
   >( 
     config: OnEventConfig<TIdl, TEventName>

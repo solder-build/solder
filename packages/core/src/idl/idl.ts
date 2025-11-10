@@ -1,6 +1,6 @@
 import bs58 from "bs58";
 import { BorshCoder, BorshEventCoder, BorshInstructionCoder, Idl, utils } from "@coral-xyz/anchor";
-import { EventType, ExtractEvent, InstructionArgs } from "./idl-types";
+import { AnchorIdl, EventType, ExtractEvent, InstructionArgs, toMutableIdl } from "./idl-types";
 import { ExtractEventNames } from "../indexer/indexer";
 
 export type DecodedMeta = {
@@ -32,13 +32,13 @@ export type DecodedEvent = {
 };
 
 export function getInstructionCoder(
-  idl: Idl,
+  idl: AnchorIdl,
 ): BorshInstructionCoder {
-  return new BorshCoder(idl).instruction;
+  return new BorshCoder(toMutableIdl(idl)).instruction;
 }
 
-export function getEventCoder(idl: Idl): BorshEventCoder {
-  return new BorshCoder(idl).events;
+export function getEventCoder(idl: AnchorIdl): BorshEventCoder {
+  return new BorshCoder(toMutableIdl(idl)).events;
 }
 
 export function decodeInstructionParams(
@@ -84,7 +84,7 @@ export function decodeEventData(
 export function decodeInstruction(
   data: string,
   programId: string,
-  idl: Idl,
+  idl: AnchorIdl,
 ): DecodedInstruction | null {
   if (!programId || !data) return null as never;
 
@@ -109,7 +109,7 @@ export function decodeInstruction(
 export const decodeEvent = (
   data: string,
   programId: string,
-  idl: Idl,
+  idl: AnchorIdl,
 ): DecodedEvent | null => {
   const eventCoder = getEventCoder(idl);
 

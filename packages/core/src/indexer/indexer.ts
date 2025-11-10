@@ -1,6 +1,6 @@
 import { Connection } from "@solana/web3.js";
 import { RpcClient } from "../rpc/rpc";
-import { EventType, IdlEvent } from "../idl/idl-types";
+import { AnchorIdl, EventType, IdlEvent, toMutableIdl } from "../idl/idl-types";
 import { CursorStore } from "./db";
 import { Idl } from "@coral-xyz/anchor";
 
@@ -14,10 +14,10 @@ export interface IndexerConfig {
 export interface RegisteredProgram {
   programId: string;
   eventTypes: string[];
-  idl: Idl;
+  idl: AnchorIdl;
 }
 
-export interface EventHandler<TIdl extends Idl = Idl, TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>> {
+export interface EventHandler<TIdl extends AnchorIdl = AnchorIdl, TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>> {
   id: string;
   programId: string;
   idl: TIdl;
@@ -25,7 +25,7 @@ export interface EventHandler<TIdl extends Idl = Idl, TEventName extends Extract
   handler: (event: IndexerEvent<TIdl, TEventName>) => Promise<void> | void;
 }
 
-export interface OnEventConfig<TIdl extends Idl = Idl, TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>> {
+export interface OnEventConfig<TIdl extends AnchorIdl = AnchorIdl, TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>> {
   programId: string;
   idl: TIdl;
   eventName: TEventName;
@@ -33,7 +33,7 @@ export interface OnEventConfig<TIdl extends Idl = Idl, TEventName extends Extrac
 }
 
 // Type to extract event names from IDL
-export type ExtractEventNames<TIdl extends Idl> = TIdl extends { events: infer TEvents }
+export type ExtractEventNames<TIdl extends AnchorIdl> = TIdl extends { events: infer TEvents }
   ? TEvents extends readonly any[]
     ? TEvents[number] extends { name: infer TName }
       ? TName
@@ -42,7 +42,7 @@ export type ExtractEventNames<TIdl extends Idl> = TIdl extends { events: infer T
   : never;
 
 // Type to get event data from IDL
-export type ExtractEventData<TIdl extends Idl, TEventName extends ExtractEventNames<TIdl>> = 
+export type ExtractEventData<TIdl extends AnchorIdl, TEventName extends ExtractEventNames<TIdl>> = 
   TIdl extends { events: infer TEvents }
     ? TEvents extends readonly any[]
       ? TEvents[number] extends { name: TEventName; fields: infer TFields }
@@ -52,7 +52,7 @@ export type ExtractEventData<TIdl extends Idl, TEventName extends ExtractEventNa
     : never;
 
 // Type for the complete event object passed to handlers
-export interface IndexerEvent<TIdl extends Idl = Idl, TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>> {
+export interface IndexerEvent<TIdl extends AnchorIdl = AnchorIdl, TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>> {
   name: string;
   contract: string;
   type: string;
@@ -91,7 +91,7 @@ export class Indexer {
    * @param eventTypes Array of event names to filter for
    * @param idl The Anchor IDL object for this program
    */
-  registerProgram(programId: string, eventTypes: string[], idl: any): void {
+  registerProgram(programId: string, eventTypes: string[], idl: AnchorIdl): void {
     // Validate that the IDL contains the requested event types
     this.validateEventTypes(idl, eventTypes);
     
@@ -106,7 +106,7 @@ export class Indexer {
   /**
    * Validate that the IDL contains the requested event types
    */
-  private validateEventTypes(idl: any, eventTypes: string[]): void {
+  private validateEventTypes(idl: AnchorIdl, eventTypes: string[]): void {
     if (!idl || !idl.events) {
       throw new Error("IDL must contain events array");
     }
@@ -273,7 +273,7 @@ export class Indexer {
       // Create program IDL mapping
       const programIdls = new Map<string, Idl>();
       this.registeredPrograms.forEach((program, programId) => {
-        programIdls.set(programId, program.idl);
+        programIdls.set(programId, toMutableIdl(program.idl));
       });
 
       const blockData = await this.rpcClient.getBlockWithEvents(slot, { 
@@ -353,7 +353,7 @@ export class Indexer {
   /**
    * Parse event data using the provided IDL for better type safety
    */
-  private parseEventWithIdl(event: any, idl: Idl): any {
+  private parseEventWithIdl(event: any, idl: AnchorIdl): any {
     try {
       // Find the event definition in the IDL
       const eventDefinition = idl?.events?.find((e: IdlEvent) => e.name === event.name);
