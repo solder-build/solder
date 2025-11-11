@@ -60,7 +60,7 @@ async function main() {
     idl: PumpFunIdl,
     eventName: "TradeEvent",
     handler: async (event) => {
-      console.log("\n🎯 TradeEvent received:");
+      console.log("\n🎯 TradeEvent received:\n");
       console.log("  Event:", event.eventName);
       console.log("  Program:", event.programId);
       console.log("  Slot:", event.transaction.slot);

@@ -276,7 +276,7 @@ export class RustIndexer {
 
     // Call all matching handlers
     await Promise.all(
-      matchingHandlers.map((handler) => handler.handler(eventData as any))
+      matchingHandlers.map((handler) => handler.handler(eventData as any, this.db!))
     );
   }
 
