@@ -16,23 +16,15 @@ async function main() {
   console.log("🚀 Starting Solder gRPC Indexer Example (Rust/Yellowstone)");
 
   // Validate environment variables
-  const grpcEndpoint = "https://solder-solanam-6597.mainnet.rpcpool.com";
-  const xToken = "0dd351ec-3106-48dd-946b-acd8e9d5c38c";
-  const databaseUrl = "postgresql://postgres:password123@127.0.0.1:6500/app";
+  const grpcEndpoint = process.env.GRPC_ENDPOINT;
+  const xToken = process.env.GRPC_TOKEN;
+  const databaseUrl = process.env.DATABASE_URL;
 
-  if (!grpcEndpoint) {
-    console.error("❌ Missing GRPC_ENDPOINT environment variable");
-    console.log("\nExample:");
-    console.log("  export GRPC_ENDPOINT=https://your-fumarole-endpoint.com");
-    console.log("  export GRPC_TOKEN=your-auth-token");
-    console.log("  export DATABASE_URL=postgresql://user:pass@localhost:5432/db");
-    process.exit(1);
-  }
-
-  if (!databaseUrl) {
-    console.error("❌ Missing DATABASE_URL environment variable");
-    console.log("\nExample:");
-    console.log("  export DATABASE_URL=postgresql://user:pass@localhost:5432/db");
+  if (!grpcEndpoint || !xToken || !databaseUrl) {
+    console.error("❌ Missing environment variables");
+    console.error("  export GRPC_ENDPOINT=https://your-fumarole-endpoint.com");
+    console.error("  export GRPC_TOKEN=your-auth-token");
+    console.error("  export DATABASE_URL=postgresql://user:pass@localhost:5432/db");
     process.exit(1);
   }
 
