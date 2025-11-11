@@ -1,5 +1,7 @@
-import { utils, BorshCoder, Idl, BorshInstructionCoder, BorshEventCoder } from "@coral-xyz/anchor";
-import type { LegacyIdl } from "./legacy-idl-types";
+import { BorshCoder, BorshEventCoder, BorshInstructionCoder, Idl, utils } from "@coral-xyz/anchor";
+import { AnchorIdl, EventType, toMutableIdl } from "./idl-types";
+import { ExtractEventNames } from "../indexer/indexer";
+import { LegacyIdl } from "./legacy-idl-types";
 
 export type DecodedMeta = {
   contract: string;
@@ -26,17 +28,17 @@ export type DecodedEvent = {
   contract: string;
   name: string;
   type: "event";
-  parsed: any; // Generic parsed event data
+  parsed: unknown;
 };
 
-export function getInstructionCoder(idl: any): BorshInstructionCoder {
-  const coder = new BorshCoder(idl);
-  return coder.instruction;
+export function getInstructionCoder(
+  idl: AnchorIdl,
+): BorshInstructionCoder {
+  return new BorshCoder(toMutableIdl(idl)).instruction;
 }
 
-export function getEventCoder(idl: any): BorshEventCoder {
-  const coder = new BorshCoder(idl);
-  return coder.events;
+export function getEventCoder(idl: AnchorIdl): BorshEventCoder {
+  return new BorshCoder(toMutableIdl(idl)).events;
 }
 
 export function decodeInstructionParams(
@@ -79,11 +81,16 @@ export function decodeEventData(
   }
 }
 
-export function decodeInstruction(data: string, programId: string, idl: Idl): DecodedInstruction | null {
-  if (!programId || !data || !idl) return null;
+export function decodeInstruction(
+  data: string,
+  programId: string,
+  idl: AnchorIdl,
+): DecodedInstruction | null {
+  if (!programId || !data) return null as never;
 
-  try {
-    const instructionCoder = getInstructionCoder(idl);
+  const instructionCoder = getInstructionCoder(idl);
+
+  if (instructionCoder) {
     const decoded = decodeInstructionParams(instructionCoder, data);
 
     if (decoded) {
@@ -94,34 +101,33 @@ export function decodeInstruction(data: string, programId: string, idl: Idl): De
         parsed: decoded.data,
       };
     }
-  } catch (error) {
-    console.warn(`Failed to decode instruction for program ${programId}:`, error);
   }
 
   return null;
 }
 
-export const decodeEvent = (data: string, programId: string, idl: Idl): DecodedEvent | null => {
-  if (!programId || !data || !idl) return null;
+export const decodeEvent = (
+  data: string,
+  programId: string,
+  idl: AnchorIdl,
+): DecodedEvent | null => {
+  const eventCoder = getEventCoder(idl);
 
-  try {
-    const eventCoder = getEventCoder(idl);
+  if (eventCoder) {
     const decoded = decodeEventData(eventCoder, data);
 
     if (decoded) {
       return {
-        contract: programId, // Use programId directly
+        contract: programId,
         name: decoded.name,
         type: "event",
         parsed: decoded.data,
       };
     }
-  } catch (error) {
-    console.warn(`Failed to decode event for program ${programId}:`, error);
   }
 
   return null;
-}
+};
 
 // Legacy IDL detection and helper functions
 export function isLegacyIdl(idl: any): idl is LegacyIdl {

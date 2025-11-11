@@ -1,5 +1,5 @@
 import { RpcClient } from "../rpc/rpc";
-import { EventType, IdlEvent } from "../idl/idl-types";
+import { AnchorIdl, EventType, IdlEvent } from "../idl/idl-types";
 import { LegacyEventType, LegacyIdl } from "../idl/legacy-idl-types";
 import { isLegacyIdl } from "../idl/idl";
 import { CursorStore } from "./db";
@@ -23,7 +23,7 @@ export interface RegisteredProgram {
 }
 
 export interface EventHandler<
-  TIdl extends Idl | LegacyIdl = Idl,
+  TIdl extends AnchorIdl = Idl,
   TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
 > {
   id: string;
@@ -37,7 +37,7 @@ export interface EventHandler<
 }
 
 export interface OnEventConfig<
-  TIdl extends Idl | LegacyIdl = Idl,
+  TIdl extends AnchorIdl = Idl,
   TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
 > {
   programId: string;
@@ -50,7 +50,7 @@ export interface OnEventConfig<
 }
 
 // Type to extract event names from IDL (supports both legacy and current formats)
-export type ExtractEventNames<TIdl extends Idl | LegacyIdl> = 
+export type ExtractEventNames<TIdl extends AnchorIdl> = 
   [TIdl] extends [LegacyIdl]
     ? TIdl extends { events?: readonly { name: infer TName }[] }
       ? TName extends string
@@ -65,7 +65,7 @@ export type ExtractEventNames<TIdl extends Idl | LegacyIdl> =
 
 // Type to get event data from IDL
 export type ExtractEventData<
-  TIdl extends Idl,
+  TIdl extends AnchorIdl,
   TEventName extends ExtractEventNames<TIdl>,
 > = TIdl extends { events: infer TEvents }
   ? TEvents extends readonly any[]
@@ -77,17 +77,13 @@ export type ExtractEventData<
 
 // Type for the complete event object passed to handlers (supports both legacy and current IDL)
 export interface IndexerEvent<
-  TIdl extends Idl | LegacyIdl = Idl,
+  TIdl extends AnchorIdl = Idl,
   TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
 > {
   name: string;
   contract: string;
   type: string;
-  parsed: TIdl extends Idl
-    ? EventType<TIdl, TEventName>
-    : TIdl extends LegacyIdl 
-      ? LegacyEventType<TIdl, TEventName>
-      : never;
+  parsed: EventType<TIdl, TEventName>;
   timestamp: string;
   transaction: {
     hash: string;
@@ -211,7 +207,7 @@ export class Indexer {
    * @returns A function to remove the event handler
    */
   public async onEvent<
-    TIdl extends Idl | LegacyIdl,
+    TIdl extends AnchorIdl,
     TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
   >(config: OnEventConfig<TIdl, TEventName>): Promise<() => void> {
     const handlerId = `${config.programId}-${config.eventName}-${Date.now()}`;

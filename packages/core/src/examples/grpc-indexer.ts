@@ -2,7 +2,6 @@ import { RustIndexer } from "../indexer/rust-indexer";
 import type { RustIndexerConfig } from "../indexer/rust-indexer";
 
 import PumpFunIdl from './idl';
-import PumpFunLegacyIdl from './legacy-idl';
 
 /**
  * Example demonstrating the high-performance gRPC-based indexer
@@ -67,8 +66,6 @@ async function main() {
       console.log("  Slot:", event.transaction.slot);
       console.log("  Signature:", event.transaction.hash);
       console.log("  Data:", JSON.stringify(event.parsed, null, 2));      
-      // If database is configured, you can insert data here
-      // await db.insert(tradesTable).values({ ... });
     },
   });
 
