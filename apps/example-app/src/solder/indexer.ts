@@ -16,9 +16,10 @@
  * @author Solder Team
  */
 
-import { Indexer, RpcClient, type ExtractEventNames, type IndexerConfig, type IndexerEvent } from "@solder-build/core";
+import { Indexer, RpcClient, type ExtractEventNames, type IndexerConfig, type IndexerEvent, type RustIndexerConfig } from "@solder-build/core";
 import { tradesTable } from "../../solder.schema.js"; // 🔧 MODIFY: Import your custom table schema
 import { pumpFunIdl } from "../idls/pump-fun.js";
+import { RustIndexer } from "@solder-build/core";
 
 
 /**
@@ -87,8 +88,44 @@ export const initializeIndexer = async () => {
     INDEXER_CONFIG.startBlock = await getLatestBlockHeight();
   }
 
-  /// configure your indexer here
-  const indexer = new Indexer(INDEXER_CONFIG as IndexerConfig);
+  // /// configure your indexer here
+  // const indexer = new Indexer(INDEXER_CONFIG as IndexerConfig);
+
+  // /// configure your event listeners here
+  // await indexer.onEvent<typeof pumpFunIdl, "TradeEvent">({
+  //   programId: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P", // 🔧 MODIFY: Replace with your program ID
+  //   idl: pumpFunIdl, // 🔧 MODIFY: Replace with your program's IDL
+  //   eventName: "TradeEvent", // 🔧 MODIFY: Replace with your event name
+  //   handler: async (
+  //     event: IndexerEvent<typeof pumpFunIdl, "TradeEvent">, // 🔧 MODIFY: Update this type to match your event structure
+  //     db,
+  //   ) => {
+  //     // 🔧 MODIFY: Replace this database insertion with your custom logic
+  //     await db.insert(tradesTable).values({ // 🔧 MODIFY: Replace tradesTable with your table
+  //       mint: event.parsed.mint,
+  //       solAmount: event.parsed.sol_amount.toString(),
+  //       tokenAmount: event.parsed.token_amount.toString(),
+  //       isBuy: event.parsed.is_buy,
+  //       user: event.parsed.user,
+  //       virtualSolReserves: event.parsed.virtual_sol_reserves.toString(),
+  //       virtualTokenReserves: event.parsed.virtual_token_reserves.toString(),
+  //       timestamp: new Date(Number(event.parsed.timestamp) * 1000),
+  //     });
+  //   },
+  // });
+
+    /// configure your indexer here
+
+    const config: RustIndexerConfig = {
+      ...INDEXER_CONFIG,
+      mode: 'grpc',
+      databaseUrl: INDEXER_CONFIG.databaseUrl ?? '',
+      grpcEndpoint: process.env.GRPC_ENDPOINT ?? '',
+      xToken: process.env.GRPC_TOKEN,
+      subscriberName: 'solder-grpc-example',
+      cursorKey: 'grpc-indexer-example',
+    };
+  const indexer = new RustIndexer(config);
 
   /// configure your event listeners here
   await indexer.onEvent<typeof pumpFunIdl, "TradeEvent">({
@@ -134,4 +171,4 @@ export const initializeIndexer = async () => {
  * await stopIndexer(indexer);
  * ```
  */
-export const stopIndexer = async (indexer: Indexer) => indexer.stop();
+export const stopIndexer = async (indexer: Indexer | RustIndexer) => indexer.stop();

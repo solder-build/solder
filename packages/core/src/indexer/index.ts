@@ -8,3 +8,8 @@ export {
   type ExtractEventData,
   type IndexerEvent,
 } from "./indexer";
+
+export {
+  RustIndexer,
+  type RustIndexerConfig,
+} from "./rust-indexer";
