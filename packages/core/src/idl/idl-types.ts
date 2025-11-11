@@ -108,9 +108,9 @@ type EventFieldsFromEvents<
   IDL["events"] extends readonly IdlEvent[]
     ? Extract<IDL["events"][number], { name: Name }> extends { fields: readonly IdlField[] }
       ? Extract<IDL["events"][number], { name: Name }>["fields"]
-      : Extract<IDL["events"][number], { name: Name }> extends { type: IdlTypeDefType }
-        ? Extract<IDL["events"][number], { name: Name }>["type"] extends { fields: readonly IdlField[] }
-          ? Extract<IDL["events"][number], { name: Name }>["type"]["fields"]
+      : Extract<IDL["events"][number], { name: Name }> extends { type: infer T }
+        ? T extends { fields: readonly IdlField[] }
+          ? T["fields"]
           : never
         : never
     : never;
@@ -120,8 +120,10 @@ type EventFieldsFromTypes<
   Name extends string
 > =
   IDL["types"] extends readonly IdlTypeDef[]
-    ? Extract<IDL["types"][number], { name: Name }> extends { type: IdlStructDef }
-      ? Extract<IDL["types"][number], { name: Name }>["type"]["fields"]
+    ? Extract<IDL["types"][number], { name: Name }> extends { type: infer T }
+      ? T extends { fields: readonly IdlField[] }
+        ? T["fields"]
+        : never
       : never
     : never;
 
@@ -174,7 +176,7 @@ export type InstructionArgs<
     : never;
 
 // Runtime helper to tag a decoded payload with its inferred type without transforming it
-export function asEventParams<IDL extends IdlLike, N extends EventNames<IDL> & string>(
+export function asEventParams<IDL extends AnchorIdl, N extends EventNames<IDL> & string>(
   _idl: IDL,
   _name: N,
   payload: unknown

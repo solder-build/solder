@@ -101,11 +101,11 @@ export const initializeIndexer = async () => {
     ) => {
       // 🔧 MODIFY: Replace this database insertion with your custom logic
       await db.insert(tradesTable).values({ // 🔧 MODIFY: Replace tradesTable with your table
-        mint: event.parsed.mint.toBase58(),
+        mint: event.parsed.mint,
         solAmount: event.parsed.sol_amount.toString(),
         tokenAmount: event.parsed.token_amount.toString(),
         isBuy: event.parsed.is_buy,
-        user: event.parsed.user.toBase58(),
+        user: event.parsed.user,
         virtualSolReserves: event.parsed.virtual_sol_reserves.toString(),
         virtualTokenReserves: event.parsed.virtual_token_reserves.toString(),
         timestamp: new Date(Number(event.parsed.timestamp) * 1000),

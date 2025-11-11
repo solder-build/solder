@@ -17,6 +17,7 @@ async function main() {
   const t0 = process.hrtime.bigint();
   const logs = await rpc.getBlockWithEvents(370406939, {
     programIds: ["6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"],
+    programIdls: new Map(),
   });
 
   const t1 = process.hrtime.bigint();

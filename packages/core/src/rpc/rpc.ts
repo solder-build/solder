@@ -1,5 +1,6 @@
 import { ParsedTransaction } from "@solana/web3.js";
 import { createSolanaRpc } from "@solana/rpc";
+import { Idl } from "@coral-xyz/anchor";
 import { DecodedEvent, decodeEvent, decodeInstruction } from "../idl/idl";
 import { collectWith, fetchParsedBlock, isParsedInstruction, isPartiallyDecodedInstruction } from "../utils/block";
 
@@ -195,7 +196,7 @@ export class RpcClient {
             ({ index, programId, instr }) => {
               if (isPartiallyDecodedInstruction(instr)) {
                 const programIdl = filter.programIdls.get(programId);
-                const decoded = decodeEvent(instr.data, programId, programIdl! );
+                const decoded = decodeEvent(instr.data, programId, programIdl);
                 return decoded ? { index, programId, event: decoded } : null;
               }
               return null;

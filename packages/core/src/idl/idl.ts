@@ -84,9 +84,9 @@ export function decodeEventData(
 export function decodeInstruction(
   data: string,
   programId: string,
-  idl: AnchorIdl,
+  idl?: AnchorIdl,
 ): DecodedInstruction | null {
-  if (!programId || !data) return null as never;
+  if (!programId || !data || !idl) return null as never;
 
   const instructionCoder = getInstructionCoder(idl);
 
@@ -109,8 +109,9 @@ export function decodeInstruction(
 export const decodeEvent = (
   data: string,
   programId: string,
-  idl: AnchorIdl,
+  idl?: AnchorIdl,
 ): DecodedEvent | null => {
+  if (!idl) return null;
   const eventCoder = getEventCoder(idl);
 
   if (eventCoder) {
