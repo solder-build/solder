@@ -1,8 +1,7 @@
-import { PublicKey } from "@solana/web3.js";
 import type { PrimitiveConfig, FieldsToObject } from "./idl-types";
 
 type DefaultPrimitives = PrimitiveConfig<
-  PublicKey,
+  import("@solana/web3.js").PublicKey,
   bigint,
   string,
   boolean,
@@ -76,7 +75,7 @@ export type LegacyInstructionNames<IDL> =
 export type ExtractLegacyEvent<
   IDL extends { events: readonly any[] },
   Name extends string,
-  P extends PrimitiveConfig<PublicKey, bigint, string, boolean, string> = DefaultPrimitives
+  P extends PrimitiveConfig = DefaultPrimitives
 > = IDL["events"][number] extends infer T
   ? T extends { name: Name; fields: readonly LegacyIdlField[] }
     ? FieldsToObject<T["fields"], P>
@@ -87,7 +86,7 @@ export type ExtractLegacyEvent<
 export type ExtractLegacyInstructionArgs<
   IDL extends { instructions: readonly any[] },
   Name extends string,
-  P extends PrimitiveConfig<PublicKey, bigint, string, boolean, string> = DefaultPrimitives
+  P extends PrimitiveConfig = DefaultPrimitives
 > = IDL["instructions"][number] extends infer I
   ? I extends { name: Name; args: readonly LegacyIdlField[] }
     ? FieldsToObject<I["args"], P>
@@ -98,7 +97,7 @@ export type ExtractLegacyInstructionArgs<
 export type LegacyEventType<
   IDL,
   Name extends LegacyEventNames<IDL>,
-  P extends PrimitiveConfig<PublicKey, bigint, string, boolean, string> = DefaultPrimitives
+  P extends PrimitiveConfig = DefaultPrimitives
 > = IDL extends { events: readonly any[] }
   ? ExtractLegacyEvent<IDL, Name & string, P>
   : never;

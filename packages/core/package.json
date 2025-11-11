@@ -1,7 +1,7 @@
 {
-  "name": "@repo/core",
-  "version": "0.0.0",
-  "description": "Solder Core Package",
+  "name": "@solder-build/core",
+  "version": "0.1.25",
+  "description": "A modern Solana indexer framework with built-in database support and auto-generated APIs",
   "license": "ISC",
   "author": "",
   "type": "commonjs",
@@ -40,13 +40,21 @@
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",
+    "@google-cloud/kms": "^5.2.1",
+    "@solana/compat": "^4.0.0",
+    "@solana/rpc": "^4.0.0",
+    "@solana/kit": "^4.0.0",
     "@solana/web3.js": "^1.98.4",
+    "ansi-escapes": "^7.1.1",
     "bs58": "^6.0.0",
     "drizzle-orm": "^0.44.6",
     "hono": "^4.9.8",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "picocolors": "^1.1.1",
+    "terminal-size": "^4.0.0"
   },
   "devDependencies": {
-    "@types/pg": "^8.15.5"
+    "@types/pg": "^8.15.5",
+    "typescript": "^5.9.3"
   }
 }

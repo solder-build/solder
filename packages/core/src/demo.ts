@@ -1,4 +1,4 @@
-import { RpcClient } from "./rpc/rpc.js";
+import { RpcClient } from "./rpc/rpc";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as dotenv from "dotenv";

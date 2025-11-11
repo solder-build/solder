@@ -1,0 +1,239 @@
+name: Publish to NPM
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: "Version bump type (major, minor, patch)"
+        required: false
+        default: "patch"
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+          run_install: false
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: |
+          cd packages/core
+          pnpm run build
+          cd ../create-solder
+          pnpm run build
+          cd ../solder-cli
+          pnpm run build
+
+      - name: Check for [skip ci] and [no bump]
+        id: workflow_checks
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # Manual dispatch - check latest commit message
+            COMMIT_MSG=$(git log -1 --pretty=%B)
+          else
+            # Push to main - check the commit that triggered this workflow
+            COMMIT_MSG=$(git log -1 --pretty=%B)
+          fi
+
+          if [[ "$COMMIT_MSG" == *"[skip ci]"* ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "no_bump=false" >> $GITHUB_OUTPUT
+            echo "Found [skip ci] in commit message. Skipping workflow."
+            exit 0
+          elif [[ "$COMMIT_MSG" == *"[no bump]"* ]]; then
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "no_bump=true" >> $GITHUB_OUTPUT
+            echo "Found [no bump] in commit message. Skipping version bumps but continuing with build and publish."
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "no_bump=false" >> $GITHUB_OUTPUT
+            echo "No special markers found. Continuing with normal workflow."
+          fi
+
+      - name: Determine version bump type
+        id: version_type
+        if: steps.workflow_checks.outputs.skip == 'false' && steps.workflow_checks.outputs.no_bump == 'false'
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            VERSION_BUMP="${{ github.event.inputs.version_bump }}"
+          else
+            # Get the last commit message
+            COMMIT_MSG=$(git log -1 --pretty=%B)
+            
+            if [[ "$COMMIT_MSG" == *"[major]"* ]]; then
+              VERSION_BUMP="major"
+            elif [[ "$COMMIT_MSG" == *"[minor]"* ]]; then
+              VERSION_BUMP="minor"
+            else
+              VERSION_BUMP="patch"
+            fi
+          fi
+
+          echo "bump_type=$VERSION_BUMP" >> $GITHUB_OUTPUT
+          echo "Version bump type: $VERSION_BUMP"
+
+      - name: Configure git
+        if: steps.workflow_checks.outputs.skip == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Bump version for @solder-build/core
+        id: bump_core
+        if: steps.workflow_checks.outputs.skip == 'false' && steps.workflow_checks.outputs.no_bump == 'false'
+        run: |
+          cd packages/core
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          echo "Current version: $CURRENT_VERSION"
+
+          npm version ${{ steps.version_type.outputs.bump_type }} --no-git-tag-version
+
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          echo "New version: $NEW_VERSION"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Bump version for create-solder
+        id: bump_create_solder
+        if: steps.workflow_checks.outputs.skip == 'false' && steps.workflow_checks.outputs.no_bump == 'false'
+        run: |
+          cd packages/create-solder
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          echo "Current version: $CURRENT_VERSION"
+
+          npm version ${{ steps.version_type.outputs.bump_type }} --no-git-tag-version
+
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          echo "New version: $NEW_VERSION"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Bump version for solder-cli
+        id: bump_solder_cli
+        if: steps.workflow_checks.outputs.skip == 'false' && steps.workflow_checks.outputs.no_bump == 'false'
+        run: |
+          cd packages/solder-cli
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          echo "Current version: $CURRENT_VERSION"
+
+          npm version ${{ steps.version_type.outputs.bump_type }} --no-git-tag-version
+
+          NEW_VERSION=$(node -p "require('./package.json').version")
+          echo "New version: $NEW_VERSION"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Commit version bumps
+        if: steps.workflow_checks.outputs.skip == 'false' && steps.workflow_checks.outputs.no_bump == 'false'
+        run: |
+          git add packages/core/package.json packages/create-solder/package.json packages/solder-cli/package.json
+          git commit -m "chore: bump versions to ${{ steps.bump_core.outputs.new_version }} [${{ steps.version_type.outputs.bump_type }}] [skip ci]" || echo "No changes to commit"
+          git push
+
+      - name: Get current versions (for no bump mode)
+        id: current_versions
+        if: steps.workflow_checks.outputs.skip == 'false' && steps.workflow_checks.outputs.no_bump == 'true'
+        run: |
+          cd packages/core
+          CORE_VERSION=$(node -p "require('./package.json').version")
+          echo "core_version=$CORE_VERSION" >> $GITHUB_OUTPUT
+          echo "Core version: $CORE_VERSION"
+
+          cd ../create-solder
+          CREATE_SOLDER_VERSION=$(node -p "require('./package.json').version")
+          echo "create_solder_version=$CREATE_SOLDER_VERSION" >> $GITHUB_OUTPUT
+          echo "Create-solder version: $CREATE_SOLDER_VERSION"
+
+          cd ../solder-cli
+          SOLDER_CLI_VERSION=$(node -p "require('./package.json').version")
+          echo "solder_cli_version=$SOLDER_CLI_VERSION" >> $GITHUB_OUTPUT
+          echo "Solder-cli version: $SOLDER_CLI_VERSION"
+
+      - name: Publish @solder-build/core to NPM
+        if: steps.workflow_checks.outputs.skip == 'false'
+        run: |
+          cd packages/core
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish create-solder to NPM
+        if: steps.workflow_checks.outputs.skip == 'false'
+        run: |
+          cd packages/create-solder
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish solder-cli to NPM
+        if: steps.workflow_checks.outputs.skip == 'false'
+        run: |
+          cd packages/solder-cli
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create Git tags
+        if: steps.workflow_checks.outputs.skip == 'false' && steps.workflow_checks.outputs.no_bump == 'false'
+        run: |
+          git tag "v${{ steps.bump_core.outputs.new_version }}"
+          git push --tags
+
+      - name: Summary
+        if: steps.workflow_checks.outputs.skip == 'false'
+        run: |
+          echo "## 📦 Published Packages" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.workflow_checks.outputs.no_bump }}" == "true" ]; then
+            echo "✅ **@solder-build/core** - v${{ steps.current_versions.outputs.core_version }} (no bump)" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **create-solder** - v${{ steps.current_versions.outputs.create_solder_version }} (no bump)" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **solder-cli** - v${{ steps.current_versions.outputs.solder_cli_version }} (no bump)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Mode: **No version bump** (republished existing versions)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ **@solder-build/core** - v${{ steps.bump_core.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **create-solder** - v${{ steps.bump_create_solder.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **solder-cli** - v${{ steps.bump_solder_cli.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Version bump type: **${{ steps.version_type.outputs.bump_type }}**" >> $GITHUB_STEP_SUMMARY
+          fi

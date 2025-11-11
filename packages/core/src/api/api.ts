@@ -1,10 +1,23 @@
 // your-package/api.ts
 import { Hono } from "hono";
 import { eq } from "drizzle-orm";
-import { TableDefinition } from "./tables.js";
+import { TableDefinition } from "../tables.js";
+import {
+  parseQueryFilters,
+  parseLogicalOperator,
+  parseSorting,
+  parsePagination,
+  parseFieldSelection,
+} from "./api-query-parser.js";
+import {
+  applyFiltersToQuery,
+  applySorting,
+  applyPagination,
+  applyFieldSelection,
+} from "./api-query-builder.js";
 
 type DbLike = {
-  select: () => any;
+  select: (fields?: any) => any;
   insert: (t: any) => { values: (v: any) => { returning: () => Promise<any> } };
   update: (t: any) => {
     set: (v: any) => {
@@ -31,6 +44,26 @@ function resolvePrimaryKey(options: {
   return pkOption ?? "id";
 }
 
+/**
+ * Build a mapping from database column names (snake_case) to Drizzle column objects
+ * This allows API to accept snake_case field names that match the database
+ */
+function buildColumnMapping(table: any): Record<string, any> {
+  const mapping: Record<string, any> = {};
+  
+  // Iterate through all properties in the table
+  for (const key in table) {
+    const column = table[key];
+    // Check if this is a column object with a 'name' property
+    if (column && typeof column === 'object' && 'name' in column) {
+      const dbColumnName = column.name;
+      mapping[dbColumnName] = column;
+    }
+  }
+  
+  return mapping;
+}
+
 export function generateCrudRouter(tableDef: TableDefinition, db: DbLike) {
   const app = new Hono();
 
@@ -46,17 +79,57 @@ export function generateCrudRouter(tableDef: TableDefinition, db: DbLike) {
   console.log(`[CRUD] Operations enabled:`, ops);
 
   // LIST - register at root "/" since router will be mounted at basePath
+  // Supports fine-grained querying with PostgREST-style query parameters:
+  // - Filtering: ?field=eq.value, ?field=gt.100, ?field=lt.50
+  // - Logical OR: ?or=(field1.eq.value1,field2.gt.value2)
+  // - Sorting: ?order=field.desc or ?order=field.asc
+  // - Pagination: ?limit=10&offset=20
+  // - Field selection: ?select=field1,field2,field3
+  // Note: Uses database column names (snake_case), e.g., ?is_buy=eq.true
   if (ops.list) {
     console.log(`[CRUD] Registering GET / for ${tableDef.name}`);
     app.get("/", async (c) => {
       try {
         console.log(`[CRUD] LIST request for ${tableDef.name}`);
-        const rows = await db.select().from(tableDef.table);
+        
+        // Build column mapping: database column name -> Drizzle column object
+        const columnMap = buildColumnMapping(tableDef.table);
+        
+        // Parse query parameters
+        const queryParams = c.req.query();
+        const filters = parseQueryFilters(queryParams);
+        const logicalOr = queryParams.or ? parseLogicalOperator(queryParams.or) : null;
+        const sorting = parseSorting(queryParams.order);
+        const pagination = parsePagination(queryParams.limit, queryParams.offset);
+        const fields = parseFieldSelection(queryParams.select);
+        
+        // Build query - field selection must happen at SQL level
+        let query;
+        if (fields && fields.length > 0) {
+          // Build selection object for specific fields (SQL-level)
+          const selection: Record<string, any> = {};
+          for (const field of fields) {
+            const column = columnMap[field];
+            if (!column) {
+              throw new Error(`Unknown field for selection: ${field}`);
+            }
+            selection[field] = column;
+          }
+          query = db.select(selection).from(tableDef.table);
+        } else {
+          query = db.select().from(tableDef.table);
+        }
+        
+        query = applyFiltersToQuery(query, tableDef.table, filters, logicalOr, columnMap);
+        query = applySorting(query, tableDef.table, sorting, columnMap);
+        query = applyPagination(query, pagination);
+        
+        const rows = await query;
         console.log(`[CRUD] Found ${rows.length} rows for ${tableDef.name}`);
         return c.json(rows);
       } catch (error) {
         console.error(`[CRUD] Error listing ${tableDef.name}:`, error);
-        return c.json({ error: String(error) }, 500);
+        return c.json({ error: String(error) }, 400);
       }
     });
   }
