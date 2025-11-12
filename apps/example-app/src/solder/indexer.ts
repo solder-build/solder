@@ -113,6 +113,17 @@ export const initializeIndexer = async () => {
     },
   });
 
+  await indexer.onTransactions({
+    handler: async (transaction) => {
+      console.log(
+        "Transaction parsed:",
+        JSON.stringify(transaction, (key, value) =>
+          typeof value === "bigint" ? value.toString() : value,
+        2)
+      );
+    },
+  });
+
 
   /// start the indexer
   await indexer.start();
