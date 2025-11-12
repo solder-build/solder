@@ -89,7 +89,7 @@ export class RpcClient {
 
   async getBlockWithInstructions(
     slot: number,
-    filter: { 
+    filter?: { 
       programIds: string[];
       programIdls?: Map<string, any>;
     }
@@ -124,12 +124,12 @@ export class RpcClient {
       const instructions = hasMessage(txn.transaction)
         ? collectWith<InstructionInfo>(
             { transaction: txn.transaction, meta: txn.meta! },
-            filter,
+            filter ?? { programIds: [] },
             ({ index, programId, instr }) => {
               if (isParsedInstruction(instr)) {
                 return { index, programId, parsed: instr.parsed };
               }
-              if (isPartiallyDecodedInstruction(instr)) {
+              if (isPartiallyDecodedInstruction(instr) && filter?.programIdls) {
                 // Use program-specific IDL if provided
                 const programIdl = filter.programIdls?.get(programId);
                 const decoded = decodeInstruction(instr.data, programId, programIdl);
