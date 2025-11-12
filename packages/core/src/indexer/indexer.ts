@@ -63,13 +63,18 @@ export interface IndexerTransaction {
     instructions: Array<{
       index: number;
       programId: string;
-      data: unknown;
+      data: unknown & {
+        type: string;
+        info: unknown;
+      };
     }>;
   };
 }
 
 export interface TransactionHandler {
   id: string;
+  filterByInstructions?: string[];
+  filterByProgramIds?: string[];
   handler: (
     transaction: IndexerTransaction,
     db: NodePgDatabase<Record<string, never>> & { $client: Pool },
@@ -77,6 +82,8 @@ export interface TransactionHandler {
 }
 
 export interface OnTransactionConfig {
+  filterByInstructions?: string[]; // if provided, only transactions with these instructions will be passed to the handler
+  filterByProgramIds?: string[]; // if provided, only transactions with these program IDs will be passed to the handler
   handler: (
     transaction: IndexerTransaction,
     db: NodePgDatabase<Record<string, never>> & { $client: Pool },
@@ -304,10 +311,20 @@ export class Indexer {
   public async onTransactions(
     config: OnTransactionConfig,
   ): Promise<() => void> {
-    const handlerId = `transaction-${Date.now()}`;
+    let handlerId = `transaction-${Date.now()}`;
+
+    if(config.filterByInstructions) {
+      handlerId += `-${config.filterByInstructions.sort().join("-")}`;
+    }
+
+    if(config.filterByProgramIds) {
+      handlerId += `-${config.filterByProgramIds.sort().join("-")}`;
+    }
 
     const transactionHandler: TransactionHandler = {
       id: handlerId,
+      filterByInstructions: config.filterByInstructions,
+      filterByProgramIds: config.filterByProgramIds,
       handler: config.handler,
     };
 
@@ -547,6 +564,7 @@ export class Indexer {
       data: instr.parsed,
     }));
 
+
     const transactionData: IndexerTransaction = {
       hash: transaction.txn_hash,
       slot: transaction.block_number,
@@ -557,13 +575,40 @@ export class Indexer {
         block_hash: transaction.block_hash,
         block_ts: transaction.block_ts,
         txn_hash: transaction.txn_hash,
-        instructions,
+        instructions: instructions.map(instr => ({
+          index: instr.index,
+          programId: instr.programId,
+          data: instr.data as { type: string; info: unknown },
+        })),
       },
     };
 
     // Call all transaction handlers
     for (const handler of allHandlers) {
       try {
+
+        if (handler.filterByInstructions && handler.filterByInstructions.length > 0) {
+          // Check if any instruction.programId matches any of filterByInstructions
+          const instructionNames = instructions.map(instr => (instr.data as { type: string }).type);
+          const hasIntersection = handler.filterByInstructions.some(filterInstructionName => 
+            instructionNames.includes(filterInstructionName)
+          );
+          if (!hasIntersection) {
+            return;
+          }
+        }
+
+        if (handler.filterByProgramIds && handler.filterByProgramIds.length > 0) {
+          // Check if any instruction.programId matches any of filterByProgramIds
+          const instructionProgramIds = instructions.map(instr => instr.programId);
+          const hasIntersection = handler.filterByProgramIds.some(filterProgramId => 
+            instructionProgramIds.includes(filterProgramId)
+          );
+          if (!hasIntersection) {
+            return;
+          }
+        }
+
         if (!this.db) {
           throw new Error("Database not initialized");
         }

@@ -40,7 +40,7 @@ const INDEXER_CONFIG: Partial<IndexerConfig> = {
   databaseUrl:
     process.env.DATABASE_URL, // 🔧 MODIFY: Use your actual database URL
   cursorKey: "my-indexer", // 🔧 MODIFY: Use a unique identifier for your indexer
-  enableUIProgress: true, // 🔧 MODIFY: Set to false to disable progress UI
+  enableUIProgress: false, // 🔧 MODIFY: Set to false to disable progress UI
 };
 
 /**
@@ -114,6 +114,8 @@ export const initializeIndexer = async () => {
   });
 
   await indexer.onTransactions({
+    filterByProgramIds: ["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"],
+    filterByInstructions: ["transferChecked"],
     handler: async (transaction) => {
       console.log(
         "Transaction parsed:",
