@@ -11,7 +11,7 @@ async function main() {
 
   const indexer = new Indexer({
     startBlock: 379635639,
-    rpcUrl: "https://solder-solanam-6597.mainnet.rpcpool.com/3b46c479-63d2-4713-8555-49171bd416eb",
+    rpcUrl: "https://api.mainnet-beta.solana.com",
     databaseUrl: "postgresql://postgres:password123@127.0.0.1:6500/app",
     cursorKey: "my-indexer",
   });
