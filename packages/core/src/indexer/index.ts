@@ -7,4 +7,7 @@ export {
   type ExtractEventNames,
   type ExtractEventData,
   type IndexerEvent,
+  type IndexerTransaction,
+  type TransactionHandler,
+  type OnTransactionConfig,
 } from "./indexer";
