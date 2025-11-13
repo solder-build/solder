@@ -38,6 +38,8 @@ async fn main() -> Result<()> {
     let (sender, mut receiver) = mpsc::channel(DEFAULT_CHANNEL_CAPACITY);
     let output_format = cli.output;
 
+    println!("config: {:?}", config);
+
     let printer = tokio::spawn(async move {
         while let Some(event) = receiver.recv().await {
             if let Err(err) = print_event(&event, output_format) {
@@ -46,7 +48,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    if let Err(err) = run_with_sender(config, sender).await {
+    if let Err(err) = run_with_sender(config, Some(&cli.config), sender).await {
         eprintln!("runtime terminated with error: {err}");
     }
 
@@ -80,13 +82,36 @@ fn print_event(event: &StreamEvent, format: OutputFormat) -> Result<()> {
                     );
                 }
                 StreamEvent::Event { event } => {
+                    let index_str = event.index.map(|i| format!(" index={}", i)).unwrap_or_default();
                     println!(
-                        "[EVENT] slot={} program={} signature={} name={} parsed={}",
+                        "[EVENT] slot={} program={} signature={} name={}{} params={}",
                         event.slot,
                         event.program,
                         event.signature,
-                        event.decoded.name,
-                        serde_json::to_string(&event.decoded.parsed).unwrap_or_else(|_| "{}".to_string())
+                        event.parsed.name,
+                        index_str,
+                        serde_json::to_string(&event.parsed.params).unwrap_or_else(|_| "{}".to_string())
+                    );
+                }
+                StreamEvent::Transaction { event } => {
+                    let parsed_names: Vec<_> = event
+                        .parsed_instructions
+                        .iter()
+                        .map(|ix| ix.name.as_str())
+                        .collect();
+                    let parsed_event_entries: Vec<_> = event
+                        .parsed_events
+                        .iter()
+                        .map(|ev| format!("{}@{}", ev.name, ev.index))
+                        .collect();
+                    println!(
+                        "[TRANSACTION] slot={} signature={} is_vote={} instruction_count={} parsed_instructions={:?} parsed_events={:?}",
+                        event.slot,
+                        event.signature,
+                        event.is_vote,
+                        event.message.instructions.len(),
+                        parsed_names,
+                        parsed_event_entries
                     );
                 }
                 StreamEvent::Slot { event } => {
@@ -98,7 +123,7 @@ fn print_event(event: &StreamEvent, format: OutputFormat) -> Result<()> {
             }
             Ok(())
         }
-                OutputFormat::Json => {
+        OutputFormat::Json => {
             let json = serde_json::to_string(event)?;
             println!("{}", json);
             Ok(())

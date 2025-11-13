@@ -57,13 +57,35 @@ async function main() {
       console.log("  Program:", event.programId);
       console.log("  Slot:", event.transaction.slot);
       console.log("  Signature:", event.transaction.hash);
-      console.log("  Data:", JSON.stringify(event.parsed, null, 2));      
+      console.log("  Data:", JSON.stringify((event as any).params, null, 2));      
     },
   });
 
-  console.log("\n✅ Event handlers registered");
+  console.log("\n📡 Registering transaction handler...");
+  
+  await indexer.onTransaction({
+    handler: async (transaction, db) => {
+      console.log("\n💸 Transaction received:\n");
+      console.log("  Hash:", transaction.hash);
+      console.log("  Slot:", transaction.slot);
+      console.log("  Instructions:", transaction.data.instructions.length);
+      console.log("  Parsed Instructions:", transaction.data.instructions.map((ix: any) => ix.name).join(", "));
+      
+      if (transaction.data.events && transaction.data.events.length > 0) {
+        console.log("  Parsed Events:");
+        transaction.data.events.forEach((ev: any) => {
+          console.log(`    - ${ev.name}@${ev.index}:`, JSON.stringify(ev.params, null, 4));
+        });
+      } else {
+        console.log("  Parsed Events: (none)");
+      }
+    },
+  });
+
+  console.log("\n✅ Handlers registered");
   console.log("📊 Monitoring programs:", indexer.getRegisteredProgramIds());
   console.log("🎯 Event handlers:", indexer.getEventHandlers().length);
+  console.log("💸 Transaction handlers:", indexer.getTransactionHandlers().length);
   
   console.log("\n⚡ Starting gRPC stream...");
   console.log("   This uses Yellowstone Vixen for high-performance event streaming");

@@ -43,10 +43,26 @@ export interface RustIndexerConfig {
   cursorKey?: string;
 }
 
+export interface TransactionHandler {
+  id: string;
+  handler: (
+    transaction: any,
+    db: NodePgDatabase<Record<string, never>> & { $client: Pool },
+  ) => Promise<void> | void;
+}
+
+export interface OnTransactionConfig {
+  handler: (
+    transaction: any,
+    db: NodePgDatabase<Record<string, never>> & { $client: Pool },
+  ) => Promise<void> | void;
+}
+
 export class RustIndexer {
   private nativeIndexer: any;
   private config: RustIndexerConfig;
   private eventHandlers: Map<string, EventHandler<any>> = new Map();
+  private transactionHandlers: Map<string, TransactionHandler> = new Map();
   private db: (NodePgDatabase<Record<string, never>> & { $client: Pool }) | null = null;
   private cursorStore: CursorStore | null = null;
   private pool: Pool | null = null;
@@ -95,6 +111,23 @@ export class RustIndexer {
 
     return () => {
       this.eventHandlers.delete(handlerId);
+    };
+  }
+
+  async onTransaction(
+    config: OnTransactionConfig
+  ): Promise<() => void> {
+    const handlerId = `transaction-${Date.now()}`;
+    
+    const handler: TransactionHandler = {
+      id: handlerId,
+      handler: config.handler,
+    };
+    
+    this.transactionHandlers.set(handlerId, handler);
+
+    return () => {
+      this.transactionHandlers.delete(handlerId);
     };
   }
 
@@ -160,12 +193,71 @@ export class RustIndexer {
       pipeline: {
         slots: false,
         'enable-accounts': false,
+        transactions: this.transactionHandlers.size > 0,
         'event-name-filters': eventNameFilters,
         'program-filters': programFilters,
       },
     };
 
     console.log('Launching gRPC indexer with native config:', JSON.stringify(nativeConfig, null, 2));
+
+    // Subscribe to events if we have event handlers
+    if (this.eventHandlers.size > 0) {
+      this.nativeIndexer.onEvent(async (...args: unknown[]) => {
+        try {
+          const payload = (args as unknown[])[0] ?? (args as unknown[])[1] ?? (args as unknown[])[2] ?? null;
+
+          if (payload == null) return;
+
+          let parsed: any;
+          if (typeof payload === 'string') {
+            parsed = JSON.parse(payload);
+          } else {
+            parsed = payload;
+          }
+
+          if (!parsed) {
+            return;
+          }
+
+          // The native callback already filters to type === 'event', so we can directly use it
+          if (parsed.type === 'event' && parsed.event) {
+            await this.handleEvent(parsed.event);
+          }
+        } catch (error) {
+          console.error('Error handling event from native subscription:', error);
+        }
+      });
+    }
+
+    // Subscribe to transactions if we have transaction handlers
+    if (this.transactionHandlers.size > 0) {
+      this.nativeIndexer.onTransaction(async (...args: unknown[]) => {
+        try {
+          const payload = (args as unknown[])[0] ?? (args as unknown[])[1] ?? (args as unknown[])[2] ?? null;
+
+          if (payload == null) return;
+
+          let parsed: any;
+          if (typeof payload === 'string') {
+            parsed = JSON.parse(payload);
+          } else {
+            parsed = payload;
+          }
+
+          if (!parsed) {
+            return;
+          }
+
+          // The native callback already filters to type === 'transaction', so we can directly use it
+          if (parsed.type === 'transaction' && parsed.event) {
+            await this.handleTransaction(parsed.event);
+          }
+        } catch (error) {
+          console.error('Error handling transaction from native subscription:', error);
+        }
+      });
+    }
 
     this.nativeIndexer.start(nativeConfig, async (...args: unknown[]) => {
       const payload = (args as unknown[])[0] ?? (args as unknown[])[1] ?? (args as unknown[])[2] ?? null;
@@ -205,6 +297,11 @@ export class RustIndexer {
         return;
       }
 
+      if (eventType === 'transaction') {
+        await this.handleTransaction(rawEvent.event);
+        return;
+      }
+
       if (eventType === 'error') {
         console.error('Rust indexer error:', rawEvent.error);
         return;
@@ -237,13 +334,13 @@ export class RustIndexer {
 
   private async handleEvent(event: any): Promise<void> {
     const programId = event.program;
-    const decoded = event.decoded;
+    const parsed = event.parsed;
     
-    if (!decoded) {
+    if (!parsed) {
       return;
     }
 
-    const eventName = decoded.name;
+    const eventName = parsed.name;
 
     // Find all handlers that match this programId and eventName
     // (handlers are stored with timestamp in key, so we need to search by programId and eventName)
@@ -263,7 +360,7 @@ export class RustIndexer {
       name: eventName,
       contract: programId,
       type: 'event',
-      parsed: decoded.parsed,
+      params: parsed.params,
       timestamp: new Date().toISOString(),
       transaction: {
         hash: event.signature || '',
@@ -277,6 +374,39 @@ export class RustIndexer {
     // Call all matching handlers
     await Promise.all(
       matchingHandlers.map((handler) => handler.handler(eventData as any, this.db!))
+    );
+  }
+
+  private async handleTransaction(transaction: any): Promise<void> {
+    const allHandlers = Array.from(this.transactionHandlers.values());
+
+    if (allHandlers.length === 0) {
+      return;
+    }
+
+    if (!this.db) {
+      throw new Error("Database not initialized. Provide databaseUrl when using the gRPC indexer.");
+    }
+
+    // Transform transaction to match expected format
+    const transactionData = {
+      hash: transaction.signature || '',
+      slot: transaction.slot || 0,
+      blockTime: null,
+      blockHash: '',
+      data: {
+        block_number: transaction.slot || 0,
+        block_hash: '',
+        block_ts: null,
+        txn_hash: transaction.signature || '',
+        instructions: transaction.parsed_instructions || [],
+        events: transaction.parsed_events || [],
+      },
+    };
+
+    // Call all transaction handlers
+    await Promise.all(
+      allHandlers.map((handler) => handler.handler(transactionData, this.db!))
     );
   }
 
@@ -305,12 +435,17 @@ export class RustIndexer {
     return Array.from(this.eventHandlers.values());
   }
 
+  getTransactionHandlers(): TransactionHandler[] {
+    return Array.from(this.transactionHandlers.values());
+  }
+
   getStatus() {
     return {
       isRunning: this.isRunning,
       mode: 'grpc' as const,
       registeredPrograms: this.eventHandlers.size,
       eventHandlers: this.eventHandlers.size,
+      transactionHandlers: this.transactionHandlers.size,
     };
   }
 }

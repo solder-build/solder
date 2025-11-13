@@ -83,7 +83,7 @@ impl IdlRegistry {
 #[derive(Debug, Clone, Serialize)]
 pub struct DecodedInstruction {
     pub name: String,
-    pub parsed: JsonValue,
+    pub params: JsonValue,
 }
 
 #[derive(Debug, Clone)]
@@ -128,14 +128,14 @@ impl InstructionDecoder {
         let reader = IdlReader::new(&self.idl);
         let params = reader.parse_fields(params_data, &instruction.args)?;
 
-        Ok(DecodedInstruction { name, parsed: params })
+        Ok(DecodedInstruction { name, params })
     }
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DecodedEvent {
     pub name: String,
-    pub parsed: JsonValue,
+    pub params: JsonValue,
 }
 
 #[derive(Debug, Clone)]
@@ -193,10 +193,10 @@ impl EventDecoder {
             let reader = IdlReader::new(&self.idl);
             
             match reader.parse_fields(event_data, fields) {
-                Ok(parsed) => {
+                Ok(params) => {
                     events.push(DecodedEvent {
                         name: name.clone(),
-                        parsed,
+                        params,
                     });
                     return Ok(events);
                 }
@@ -215,10 +215,10 @@ impl EventDecoder {
                 let reader = IdlReader::new(&self.idl);
                 
                 match reader.parse_fields(event_data, fields) {
-                    Ok(parsed) => {
+                    Ok(params) => {
                         events.push(DecodedEvent {
                             name: name.clone(),
-                            parsed,
+                            params,
                         });
                     }
                     Err(e) => {
