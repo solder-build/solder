@@ -40,8 +40,7 @@ pub struct AppConfig {
 #[serde(default, rename_all = "kebab-case")]
 pub struct PipelineConfig {
     pub slots: bool,
-    pub enable_accounts: bool,
-    pub transactions: bool,
+    pub enable_transactions: bool,
     #[serde(default)]
     pub event_name_filters: Vec<String>,
     #[serde(default)]
@@ -54,8 +53,7 @@ impl Default for PipelineConfig {
     fn default() -> Self {
         Self {
             slots: false,
-            enable_accounts: true,
-            transactions: false,
+            enable_transactions: false,
             event_name_filters: Vec::new(),
             instruction_name_filters: Vec::new(),
             program_filters: Vec::new(),
@@ -298,39 +296,17 @@ fn build_pipelines(
 
     for filter in &pipeline.program_filters {
         let program_id = &filter.program_id;
-        if pipeline.enable_accounts {
-            let parser = RawAccountPassthroughParser::new(program_id)?;
-            let handler = RawAccountForwarder::new(sender.clone(), program_id.clone());
-            builder = builder.account(Pipeline::new(parser, [handler]));
-        }
-
-        if pipeline.transactions {
+        if pipeline.enable_transactions {
             let parser = RawTransactionPassthroughParser::new(program_id)?;
-            let instruction_decoder = if !pipeline.instruction_name_filters.is_empty() {
-                idl_registry.get_instruction_decoder(program_id).cloned()
-            } else {
-                None
-            };
-            let event_decoder = if !pipeline.event_name_filters.is_empty() {
-                idl_registry.get_event_decoder(program_id).cloned()
-            } else {
-                None
-            };
-            let instruction_forwarder = if instruction_decoder.is_some()
-                || event_decoder.is_some()
-                || !pipeline.event_name_filters.is_empty()
-                || !pipeline.instruction_name_filters.is_empty()
-            {
-                Some(RawInstructionForwarder::new(
-                    sender.clone(),
-                    instruction_decoder,
-                    event_decoder,
-                    pipeline.event_name_filters.clone(),
-                    pipeline.instruction_name_filters.clone(),
-                ))
-            } else {
-                None
-            };
+            let instruction_decoder = idl_registry.get_instruction_decoder(program_id).cloned();
+            let event_decoder = idl_registry.get_event_decoder(program_id).cloned();
+            let instruction_forwarder = Some(RawInstructionForwarder::new(
+                sender.clone(),
+                instruction_decoder,
+                event_decoder,
+                pipeline.event_name_filters.clone(),
+                pipeline.instruction_name_filters.clone(),
+            ));
             let handler = RawTransactionForwarder::new(sender.clone(), instruction_forwarder);
             builder = builder.transaction(Pipeline::new(parser, [handler]));
         }
@@ -615,6 +591,23 @@ impl RawInstructionForwarder {
             Err(_) => {}
         }
 
+        for inner in &update.inner {
+            if let Ok(decoded_events) = decoder.decode_from_instruction_data(&inner.data) {
+                for event in decoded_events {
+                    if !self.event_name_filters.is_empty()
+                        && !self.should_include_event(&event.name)
+                    {
+                        continue;
+                    }
+                    events.push(ParsedEvent {
+                        index: instruction_index,
+                        name: event.name,
+                        params: event.params,
+                    });
+                }
+            }
+        }
+
         events
     }
 
@@ -636,14 +629,14 @@ impl RawInstructionForwarder {
     
     fn should_include_event(&self, event_name: &str) -> bool {
         if self.event_name_filters.is_empty() {
-            return false;
+            return true;
         }
         self.event_name_filters.iter().any(|filter| filter == event_name)
     }
     
     fn should_include_instruction(&self, instruction_name: &str) -> bool {
         if self.instruction_name_filters.is_empty() {
-            return false;
+            return true;
         }
         self.instruction_name_filters.iter().any(|filter| filter == instruction_name)
     }
@@ -737,13 +730,20 @@ impl Handler<TransactionUpdate> for RawTransactionForwarder {
                             .flat_map(|tree| tree.visit_all())
                             .enumerate()
                         {
-                            if let Some(decoded) = forwarder.decode_instruction_only(instruction) {
+                            if let Err(err) = forwarder
+                                .forward_instruction(&instruction, Some(idx as u32))
+                                .await
+                            {
+                                tracing::warn!(
+                                    "failed to forward instruction events for transaction: {err}"
+                                );
+                            }
+                            if let Some(decoded) = forwarder.decode_instruction_only(&instruction) {
                                 parsed_instructions.push(decoded);
                             }
                             parsed_events.extend(
-                                forwarder.decode_events_only(instruction, idx as u32),
+                                forwarder.decode_events_only(&instruction, idx as u32),
                             );
-                            forwarder.forward_instruction(instruction, Some(idx as u32)).await?;
                         }
                     }
                     Err(err) => {

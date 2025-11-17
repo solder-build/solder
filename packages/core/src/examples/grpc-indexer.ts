@@ -57,13 +57,15 @@ async function main() {
       console.log("  Program:", event.programId);
       console.log("  Slot:", event.transaction.slot);
       console.log("  Signature:", event.transaction.hash);
-      console.log("  Data:", JSON.stringify((event as any).params, null, 2));      
+      console.log("  Data:", JSON.stringify((event as any).params, null, 2));
     },
   });
 
   console.log("\n📡 Registering transaction handler...");
   
   await indexer.onTransaction({
+    programId: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
+    idl: PumpFunIdl,
     handler: async (transaction, db) => {
       console.log("\n💸 Transaction received:\n");
       console.log("  Hash:", transaction.hash);

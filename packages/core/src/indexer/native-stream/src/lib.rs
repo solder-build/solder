@@ -5,7 +5,7 @@ use napi::threadsafe_function::{
     ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode,
 };
 use napi_derive::napi;
-use serde_json::{json, Value};
+use serde_json::Value;
 use tokio::sync::mpsc;
 use vixen_indexer::{run_with_sender, AppConfig, DEFAULT_CHANNEL_CAPACITY};
 
@@ -34,7 +34,6 @@ fn get_runtime() -> napi::Result<&'static tokio::runtime::Runtime> {
 pub struct Indexer {
     runner: Option<tokio::task::JoinHandle<()>>,
     forwarder: Option<tokio::task::JoinHandle<()>>,
-    tsfn: Option<EventTsfn>,
     event_tsfn: Option<EventTsfn>,
     transaction_tsfn: Option<EventTsfn>,
 }
@@ -46,7 +45,6 @@ impl Indexer {
         Self {
             runner: None,
             forwarder: None,
-            tsfn: None,
             event_tsfn: None,
             transaction_tsfn: None,
         }
@@ -75,7 +73,7 @@ impl Indexer {
     }
 
     #[napi]
-    pub fn start(&mut self, config_json: serde_json::Value, callback: JsFunction) -> napi::Result<()> {
+    pub fn start(&mut self, config_json: serde_json::Value) -> napi::Result<()> {
         if self.runner.is_some() {
             return Err(Error::from_reason("indexer already running".to_string()));
         }
@@ -86,13 +84,6 @@ impl Indexer {
 
         let (sender, mut receiver) = mpsc::channel(DEFAULT_CHANNEL_CAPACITY);
 
-        let tsfn: EventTsfn =
-            callback.create_threadsafe_function(0, |ctx: ThreadSafeCallContext<String>| {
-                let js_string = ctx.env.create_string(&ctx.value)?;
-                Ok(vec![js_string.into_unknown()])
-            })?;
-
-        let tsfn_forward = tsfn.clone();
         let event_tsfn_forward = self.event_tsfn.clone();
         let transaction_tsfn_forward = self.transaction_tsfn.clone();
         let forwarder = runtime.spawn(async move {
@@ -100,25 +91,11 @@ impl Indexer {
                 let payload = match serde_json::to_string(&event) {
                     Ok(json) => json.clone(),
                     Err(err) => {
-                        let error_payload = json!({
-                            "type": "error",
-                            "error": err.to_string(),
-                        })
-                        .to_string();
-                        let _ = tsfn_forward.call(Ok(error_payload.clone()), ThreadsafeFunctionCallMode::Blocking);
+                        eprintln!("failed to serialize event payload: {err}");
                         continue;
                     }
                 };
 
-                // Always call the main callback for backward compatibility
-                let status =
-                    tsfn_forward.call(Ok(payload.clone()), ThreadsafeFunctionCallMode::Blocking);
-
-                if status != Status::Ok {
-                    continue;
-                }
-
-                // Route to specific callbacks based on event type
                 if let Ok(parsed) = serde_json::from_str::<Value>(&payload) {
                     if let Some(event_type) = parsed.get("type").and_then(|t| t.as_str()) {
                         match event_type {
@@ -138,7 +115,6 @@ impl Indexer {
                 }
             }
 
-            let _ = tsfn_forward.abort();
             if let Some(tsfn) = event_tsfn_forward {
                 let _ = tsfn.abort();
             }
@@ -164,7 +140,6 @@ impl Indexer {
             }
         });
 
-        self.tsfn = Some(tsfn);
         self.forwarder = Some(forwarder);
         self.runner = Some(runner);
 
@@ -185,9 +160,6 @@ impl Indexer {
         }
         if let Some(handle) = self.runner.take() {
             handle.abort();
-        }
-        if let Some(tsfn) = self.tsfn.take() {
-            let _ = tsfn.abort();
         }
         if let Some(tsfn) = self.event_tsfn.take() {
             let _ = tsfn.abort();

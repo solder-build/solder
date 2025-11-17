@@ -45,6 +45,8 @@ export interface RustIndexerConfig {
 
 export interface TransactionHandler {
   id: string;
+  programId: string;
+  idl?: AnchorIdl;
   handler: (
     transaction: any,
     db: NodePgDatabase<Record<string, never>> & { $client: Pool },
@@ -52,6 +54,8 @@ export interface TransactionHandler {
 }
 
 export interface OnTransactionConfig {
+  programId: string;
+  idl?: AnchorIdl;
   handler: (
     transaction: any,
     db: NodePgDatabase<Record<string, never>> & { $client: Pool },
@@ -103,7 +107,6 @@ export class RustIndexer {
       id: handlerId,
       programId: config.programId,
       idl: config.idl,
-      eventName: config.eventName,
       handler: config.handler,
     };
     
@@ -117,13 +120,15 @@ export class RustIndexer {
   async onTransaction(
     config: OnTransactionConfig
   ): Promise<() => void> {
-    const handlerId = `transaction-${Date.now()}`;
-    
+    const handlerId = `transaction-${config.programId}-${Date.now()}`;
+
     const handler: TransactionHandler = {
       id: handlerId,
+      programId: config.programId,
+      idl: config.idl,
       handler: config.handler,
     };
-    
+
     this.transactionHandlers.set(handlerId, handler);
 
     return () => {
@@ -155,53 +160,8 @@ export class RustIndexer {
       }
     }
 
-    const programFilters = Array.from(
-      new Set(Array.from(this.eventHandlers.values()).map(h => h.programId))
-    ).map(programId => {
-      const handler = Array.from(this.eventHandlers.values()).find(h => h.programId === programId);
-      const filter: Record<string, string> = {
-        'program-id': programId,
-      };
-      if (handler?.idl) {
-        filter['idl-json'] = JSON.stringify(handler.idl);
-      }
-      return filter;
-    });
+    const nativeConfig = this.buildConfig();
 
-    const eventNameFilters = Array.from(
-      new Set(Array.from(this.eventHandlers.values()).map(h => h.eventName))
-    );
-
-    const vixenSource: Record<string, unknown> = {
-      endpoint: this.config.grpcEndpoint,
-      'subscriber-name': this.config.subscriberName || 'solder-indexer',
-    };
-
-    if (this.config.xToken) {
-      vixenSource['x-token'] = this.config.xToken;
-    }
-
-    if (this.config.commitmentLevel) {
-      vixenSource['commitment-level'] = this.config.commitmentLevel;
-    }
-
-    const nativeConfig = {
-      source: vixenSource,
-      buffer: {
-        'sources-channel-size': 100,
-      },
-      pipeline: {
-        slots: false,
-        'enable-accounts': false,
-        transactions: this.transactionHandlers.size > 0,
-        'event-name-filters': eventNameFilters,
-        'program-filters': programFilters,
-      },
-    };
-
-    console.log('Launching gRPC indexer with native config:', JSON.stringify(nativeConfig, null, 2));
-
-    // Subscribe to events if we have event handlers
     if (this.eventHandlers.size > 0) {
       this.nativeIndexer.onEvent(async (...args: unknown[]) => {
         try {
@@ -220,7 +180,6 @@ export class RustIndexer {
             return;
           }
 
-          // The native callback already filters to type === 'event', so we can directly use it
           if (parsed.type === 'event' && parsed.event) {
             await this.handleEvent(parsed.event);
           }
@@ -230,7 +189,6 @@ export class RustIndexer {
       });
     }
 
-    // Subscribe to transactions if we have transaction handlers
     if (this.transactionHandlers.size > 0) {
       this.nativeIndexer.onTransaction(async (...args: unknown[]) => {
         try {
@@ -249,7 +207,6 @@ export class RustIndexer {
             return;
           }
 
-          // The native callback already filters to type === 'transaction', so we can directly use it
           if (parsed.type === 'transaction' && parsed.event) {
             await this.handleTransaction(parsed.event);
           }
@@ -259,25 +216,7 @@ export class RustIndexer {
       });
     }
 
-    this.nativeIndexer.start(nativeConfig, async (...args: unknown[]) => {
-      const payload = (args as unknown[])[0] ?? (args as unknown[])[1] ?? (args as unknown[])[2] ?? null;
-
-      if (payload == null) return;
-
-      let parsedEvent: any;
-      if (typeof payload === 'string') {
-        try {
-          parsedEvent = JSON.parse(payload);
-        } catch (error) {
-          console.error('Error parsing event JSON:', error);
-          return;
-        }
-      } else {
-        parsedEvent = payload;
-      }
-
-      await this.handleNativeEvent(parsedEvent);
-    });
+    this.nativeIndexer.start(nativeConfig);
 
     this.isRunning = true;
     console.log('🚀 Rust indexer started with gRPC streaming');
@@ -309,6 +248,60 @@ export class RustIndexer {
     } catch (error) {
       console.error('Error handling native event:', error);
     }
+  }
+
+  private buildConfig() {
+    const allProgramIds = Array.from(
+      new Set([
+        ...Array.from(this.eventHandlers.values()).map(h => h.programId),
+        ...Array.from(this.transactionHandlers.values()).map(h => h.programId),
+      ])
+    );
+
+    const programFilters = allProgramIds.map(programId => {
+      const handlers = [
+        ...Array.from(this.transactionHandlers.values()),
+        ...Array.from(this.eventHandlers.values()),
+      ];
+      const handlerForProgram = handlers.find(h => h.programId === programId);
+
+      const filter: Record<string, string> = {
+        'program-id': programId,
+      };
+      if (handlerForProgram?.idl) {
+        filter['idl-json'] = JSON.stringify(handlerForProgram.idl);
+      }
+      return filter;
+    });
+
+    const eventNameFilters = Array.from(
+      new Set(Array.from(this.eventHandlers.values()).map(h => h.eventName))
+    );
+
+    const source: Record<string, unknown> = {
+      'endpoint': this.config.grpcEndpoint,
+      'subscriber-name': this.config.subscriberName || 'solder-indexer',
+    };
+
+    if (this.config.xToken) {
+      source['x-token'] = this.config.xToken;
+    }
+
+    if (this.config.commitmentLevel) {
+      source['commitment-level'] = this.config.commitmentLevel;
+    }
+
+    return {
+      source,
+      buffer: {
+        'sources-channel-size': 100,
+      },
+      pipeline: {
+        'enable-transactions': true,
+        'event-name-filters': eventNameFilters,
+        'program-filters': programFilters,
+      },
+    };
   }
 
   private async handleSlotUpdate(slot: any): Promise<void> {
@@ -371,7 +364,6 @@ export class RustIndexer {
       eventName: eventName as any,
     };
 
-    // Call all matching handlers
     await Promise.all(
       matchingHandlers.map((handler) => handler.handler(eventData as any, this.db!))
     );
@@ -404,10 +396,7 @@ export class RustIndexer {
       },
     };
 
-    // Call all transaction handlers
-    await Promise.all(
-      allHandlers.map((handler) => handler.handler(transactionData, this.db!))
-    );
+    await allHandlers.map((handler) => handler.handler(transactionData, this.db!));
   }
 
   stop(): void {
@@ -428,7 +417,10 @@ export class RustIndexer {
   }
 
   getRegisteredProgramIds(): string[] {
-    return Array.from(new Set(Array.from(this.eventHandlers.values()).map(h => h.programId)));
+    return Array.from(new Set([
+      ...Array.from(this.eventHandlers.values()).map(h => h.programId),
+      ...Array.from(this.transactionHandlers.values()).map(h => h.programId),
+    ]));
   }
 
   getEventHandlers(): EventHandler<any>[] {
