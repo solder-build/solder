@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomUUID } from 'node:crypto';
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { CursorStore } from "./db";
@@ -47,6 +48,8 @@ export interface TransactionHandler {
   id: string;
   programId: string;
   idl?: AnchorIdl;
+  eventNames?: string[];
+  instructionNames?: string[];
   handler: (
     transaction: any,
     db: NodePgDatabase<Record<string, never>> & { $client: Pool },
@@ -56,6 +59,8 @@ export interface TransactionHandler {
 export interface OnTransactionConfig {
   programId: string;
   idl?: AnchorIdl;
+  eventNames?: string[];
+  instructionNames?: string[];
   handler: (
     transaction: any,
     db: NodePgDatabase<Record<string, never>> & { $client: Pool },
@@ -72,6 +77,7 @@ export class RustIndexer {
   private pool: Pool | null = null;
   private cursorKey: string;
   private isRunning = false;
+  private handlerCounter = 0;
 
   constructor(config: RustIndexerConfig) {
     if (!nativeAddon) {
@@ -95,18 +101,26 @@ export class RustIndexer {
     this.cursorStore = new CursorStore(databaseUrl);
   }
 
+  private createHandlerId(prefix: string): string {
+    const uniquePart = randomUUID
+      ? randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    return `${prefix}-${uniquePart}-${++this.handlerCounter}`;
+  }
+
   async onEvent<
     TIdl extends AnchorIdl,
     TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
   >( 
     config: OnEventConfig<TIdl, TEventName>
   ): Promise<() => void> {
-    const handlerId = `${config.programId}-${config.eventName}-${Date.now()}`;
+    const handlerId = this.createHandlerId(`event-${config.programId}`);
     
     const handler: EventHandler<TIdl, TEventName> = {
       id: handlerId,
       programId: config.programId,
       idl: config.idl,
+      eventName: config.eventName,
       handler: config.handler,
     };
     
@@ -120,12 +134,24 @@ export class RustIndexer {
   async onTransaction(
     config: OnTransactionConfig
   ): Promise<() => void> {
-    const handlerId = `transaction-${config.programId}-${Date.now()}`;
+    const hasFilters =
+      (config.eventNames && config.eventNames.length > 0) ||
+      (config.instructionNames && config.instructionNames.length > 0);
+
+    if (hasFilters && !config.idl) {
+      throw new Error(
+        'IDL is required when specifying instructionNames or eventNames filters.'
+      );
+    }
+
+    const handlerId = this.createHandlerId(`transaction-${config.programId}`);
 
     const handler: TransactionHandler = {
       id: handlerId,
       programId: config.programId,
       idl: config.idl,
+      eventNames: config.eventNames,
+      instructionNames: config.instructionNames,
       handler: config.handler,
     };
 
@@ -251,32 +277,30 @@ export class RustIndexer {
   }
 
   private buildConfig() {
-    const allProgramIds = Array.from(
-      new Set([
-        ...Array.from(this.eventHandlers.values()).map(h => h.programId),
-        ...Array.from(this.transactionHandlers.values()).map(h => h.programId),
-      ])
-    );
-
-    const programFilters = allProgramIds.map(programId => {
-      const handlers = [
-        ...Array.from(this.transactionHandlers.values()),
-        ...Array.from(this.eventHandlers.values()),
-      ];
-      const handlerForProgram = handlers.find(h => h.programId === programId);
-
-      const filter: Record<string, string> = {
-        'program-id': programId,
+    const eventSubscriptions = Array.from(this.eventHandlers.values()).map(handler => {
+      const subscription: Record<string, unknown> = {
+        id: handler.id,
+        'program-id': handler.programId,
+        'event-name': handler.eventName,
       };
-      if (handlerForProgram?.idl) {
-        filter['idl-json'] = JSON.stringify(handlerForProgram.idl);
+      if (handler.idl) {
+        subscription['idl-json'] = JSON.stringify(handler.idl);
       }
-      return filter;
+      return subscription;
     });
 
-    const eventNameFilters = Array.from(
-      new Set(Array.from(this.eventHandlers.values()).map(h => h.eventName))
-    );
+    const transactionSubscriptions = Array.from(this.transactionHandlers.values()).map(handler => {
+      const subscription: Record<string, unknown> = {
+        id: handler.id,
+        'program-id': handler.programId,
+        'event-name-filters': handler.eventNames ?? [],
+        'instruction-name-filters': handler.instructionNames ?? [],
+      };
+      if (handler.idl) {
+        subscription['idl-json'] = JSON.stringify(handler.idl);
+      }
+      return subscription;
+    });
 
     const source: Record<string, unknown> = {
       'endpoint': this.config.grpcEndpoint,
@@ -297,9 +321,10 @@ export class RustIndexer {
         'sources-channel-size': 100,
       },
       pipeline: {
-        'enable-transactions': true,
-        'event-name-filters': eventNameFilters,
-        'program-filters': programFilters,
+        'slots': false,
+        'enable-transactions': eventSubscriptions.length + transactionSubscriptions.length > 0,
+        'event-subscriptions': eventSubscriptions,
+        'transaction-subscriptions': transactionSubscriptions,
       },
     };
   }
@@ -326,32 +351,23 @@ export class RustIndexer {
   }
 
   private async handleEvent(event: any): Promise<void> {
-    const programId = event.program;
-    const parsed = event.parsed;
-    
-    if (!parsed) {
+    const subscriptionId = event.subscription_id ?? event.subscriptionId;
+
+    if (subscriptionId && this.eventHandlers.has(subscriptionId)) {
+      if (!this.db) {
+        throw new Error("Database not initialized. Provide databaseUrl when using the gRPC indexer.");
+      }
+      const handler = this.eventHandlers.get(subscriptionId)!;
+      await handler.handler(this.normalizeEventPayload(event) as any, this.db!);
       return;
     }
+  }
 
-    const eventName = parsed.name;
-
-    // Find all handlers that match this programId and eventName
-    // (handlers are stored with timestamp in key, so we need to search by programId and eventName)
-    const matchingHandlers = Array.from(this.eventHandlers.values()).filter(
-      (handler) => handler.programId === programId && handler.eventName === eventName
-    );
-
-    if (matchingHandlers.length === 0) {
-      return;
-    }
-
-    if (!this.db) {
-      throw new Error("Database not initialized. Provide databaseUrl when using the gRPC indexer.");
-    }
-
-    const eventData = {
-      name: eventName,
-      contract: programId,
+  private normalizeEventPayload(event: any) {
+    const parsed = event.parsed ?? {};
+    return {
+      name: parsed.name,
+      contract: event.program,
       type: 'event',
       params: parsed.params,
       timestamp: new Date().toISOString(),
@@ -360,13 +376,9 @@ export class RustIndexer {
         slot: event.slot || 0,
         blockTime: 0,
       },
-      programId,
-      eventName: eventName as any,
+      programId: event.program,
+      eventName: parsed.name,
     };
-
-    await Promise.all(
-      matchingHandlers.map((handler) => handler.handler(eventData as any, this.db!))
-    );
   }
 
   private async handleTransaction(transaction: any): Promise<void> {
@@ -396,7 +408,12 @@ export class RustIndexer {
       },
     };
 
-    await allHandlers.map((handler) => handler.handler(transactionData, this.db!));
+    const subscriptionId = transaction.subscription_id ?? transaction.subscriptionId;
+    if (subscriptionId && this.transactionHandlers.has(subscriptionId)) {
+      await this.transactionHandlers.get(subscriptionId)!.handler(transactionData, this.db!);
+      return;
+    }
+
   }
 
   stop(): void {

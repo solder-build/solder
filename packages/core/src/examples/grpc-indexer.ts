@@ -16,9 +16,9 @@ async function main() {
   console.log("🚀 Starting Solder gRPC Indexer Example (Rust/Yellowstone)");
 
   // Validate environment variables
-  const grpcEndpoint = process.env.GRPC_ENDPOINT;
-  const xToken = process.env.GRPC_TOKEN;
-  const databaseUrl = process.env.DATABASE_URL;
+  const grpcEndpoint = "https://solder-solanam-6597.mainnet.rpcpool.com";
+  const xToken = "0dd351ec-3106-48dd-946b-acd8e9d5c38c";
+  const databaseUrl = "postgresql://postgres:password123@127.0.0.1:6500/app";
 
   if (!grpcEndpoint || !xToken || !databaseUrl) {
     console.error("❌ Missing environment variables");
@@ -66,13 +66,14 @@ async function main() {
   await indexer.onTransaction({
     programId: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
     idl: PumpFunIdl,
+    instructionNames: ["buy"],
     handler: async (transaction, db) => {
       console.log("\n💸 Transaction received:\n");
       console.log("  Hash:", transaction.hash);
       console.log("  Slot:", transaction.slot);
       console.log("  Instructions:", transaction.data.instructions.length);
       console.log("  Parsed Instructions:", transaction.data.instructions.map((ix: any) => ix.name).join(", "));
-      
+
       if (transaction.data.events && transaction.data.events.length > 0) {
         console.log("  Parsed Events:");
         transaction.data.events.forEach((ev: any) => {

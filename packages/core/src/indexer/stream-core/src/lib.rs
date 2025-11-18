@@ -1,4 +1,4 @@
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{collections::{HashMap, HashSet}, fs, path::PathBuf, sync::Arc};
 
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
@@ -42,11 +42,9 @@ pub struct PipelineConfig {
     pub slots: bool,
     pub enable_transactions: bool,
     #[serde(default)]
-    pub event_name_filters: Vec<String>,
+    pub event_subscriptions: Vec<EventSubscriptionConfig>,
     #[serde(default)]
-    pub instruction_name_filters: Vec<String>,
-    #[serde(default)]
-    pub program_filters: Vec<IdlConfig>,
+    pub transaction_subscriptions: Vec<TransactionSubscriptionConfig>,
 }
 
 impl Default for PipelineConfig {
@@ -54,9 +52,128 @@ impl Default for PipelineConfig {
         Self {
             slots: false,
             enable_transactions: false,
+            event_subscriptions: Vec::new(),
+            transaction_subscriptions: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct EventSubscriptionConfig {
+    pub id: String,
+    #[serde(flatten)]
+    pub idl: IdlConfig,
+    pub event_name: String,
+}
+
+impl Default for EventSubscriptionConfig {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            idl: IdlConfig {
+                program_id: String::new(),
+                idl_path: None,
+                idl_json: None,
+            },
+            event_name: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct TransactionSubscriptionConfig {
+    pub id: String,
+    #[serde(flatten)]
+    pub idl: IdlConfig,
+    #[serde(default)]
+    pub event_name_filters: Vec<String>,
+    #[serde(default)]
+    pub instruction_name_filters: Vec<String>,
+}
+
+impl Default for TransactionSubscriptionConfig {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            idl: IdlConfig {
+                program_id: String::new(),
+                idl_path: None,
+                idl_json: None,
+            },
             event_name_filters: Vec::new(),
             instruction_name_filters: Vec::new(),
-            program_filters: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct ProgramSubscriptionSet {
+    event_subscriptions: Vec<EventSubscription>,
+    transaction_subscriptions: Vec<TransactionSubscription>,
+}
+
+#[derive(Debug, Clone)]
+struct EventSubscription {
+    id: String,
+    event_name: String,
+}
+
+#[derive(Debug, Clone)]
+struct TransactionSubscription {
+    id: String,
+    event_name_filters: Vec<String>,
+    instruction_name_filters: Vec<String>,
+}
+
+fn load_idl_for_config(
+    idl_registry: &mut IdlRegistry,
+    idl: &IdlConfig,
+    config_path: Option<&PathBuf>,
+    loaded: &mut HashSet<String>,
+) {
+    if idl.program_id.is_empty() || loaded.contains(&idl.program_id) {
+        return;
+    }
+
+    if let Some(path) = &idl.idl_path {
+        let resolved_path = if let Some(config_path) = config_path {
+            if path.is_absolute() {
+                path.clone()
+            } else {
+                config_path
+                    .parent()
+                    .map(|parent| parent.join(path))
+                    .unwrap_or_else(|| path.clone())
+            }
+        } else {
+            path.clone()
+        };
+
+        match idl_registry.load_from_file(&idl.program_id, &resolved_path) {
+            Ok(_) => {
+                loaded.insert(idl.program_id.clone());
+                return;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to load IDL from {}: {}",
+                    resolved_path.display(),
+                    e
+                );
+            }
+        }
+    }
+
+    if let Some(json) = &idl.idl_json {
+        match idl_registry.load_from_str(&idl.program_id, json) {
+            Ok(_) => {
+                loaded.insert(idl.program_id.clone());
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load IDL JSON for {}: {}", idl.program_id, e);
+            }
         }
     }
 }
@@ -139,6 +256,8 @@ pub struct RawEventEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index: Option<u32>,
     pub parsed: DecodedEvent,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subscription_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -153,6 +272,8 @@ pub struct RawTransactionEvent {
     pub parsed_instructions: Vec<DecodedInstruction>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parsed_events: Vec<ParsedEvent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subscription_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -265,28 +386,50 @@ fn build_pipelines(
     let mut builder = Runtime::<YellowstoneFumaroleSource>::builder();
 
     let mut idl_registry = IdlRegistry::new();
-    for filter in &pipeline.program_filters {
-        if let Some(path) = &filter.idl_path {
-            // Resolve path relative to config file directory if config_path is provided
-            let resolved_path = if let Some(config_path) = config_path {
-                if path.is_absolute() {
-                    path.clone()
-                } else {
-                    config_path.parent()
-                        .map(|parent| parent.join(path))
-                        .unwrap_or_else(|| path.clone())
-                }
-            } else {
-                path.clone()
-            };
-            if let Err(e) = idl_registry.load_from_file(&filter.program_id, &resolved_path) {
-                tracing::warn!("Failed to load IDL from {}: {}", resolved_path.display(), e);
-            }
-        } else if let Some(json) = &filter.idl_json {
-            if let Err(e) = idl_registry.load_from_str(&filter.program_id, json) {
-                tracing::warn!("Failed to load IDL JSON for {}: {}", filter.program_id, e);
-            }
+    let mut loaded_programs = HashSet::new();
+    let mut program_subscriptions: HashMap<String, ProgramSubscriptionSet> = HashMap::new();
+
+    for subscription in &pipeline.event_subscriptions {
+        load_idl_for_config(
+            &mut idl_registry,
+            &subscription.idl,
+            config_path,
+            &mut loaded_programs,
+        );
+
+        if subscription.idl.program_id.is_empty() {
+            continue;
         }
+
+        let entry = program_subscriptions
+            .entry(subscription.idl.program_id.clone())
+            .or_default();
+        entry.event_subscriptions.push(EventSubscription {
+            id: subscription.id.clone(),
+            event_name: subscription.event_name.clone(),
+        });
+    }
+
+    for subscription in &pipeline.transaction_subscriptions {
+        load_idl_for_config(
+            &mut idl_registry,
+            &subscription.idl,
+            config_path,
+            &mut loaded_programs,
+        );
+
+        if subscription.idl.program_id.is_empty() {
+            continue;
+        }
+
+        let entry = program_subscriptions
+            .entry(subscription.idl.program_id.clone())
+            .or_default();
+        entry.transaction_subscriptions.push(TransactionSubscription {
+            id: subscription.id.clone(),
+            event_name_filters: subscription.event_name_filters.clone(),
+            instruction_name_filters: subscription.instruction_name_filters.clone(),
+        });
     }
 
     if pipeline.slots {
@@ -294,22 +437,32 @@ fn build_pipelines(
         builder = builder.slot(Pipeline::new(SlotPassthroughParser, [handler]));
     }
 
-    for filter in &pipeline.program_filters {
-        let program_id = &filter.program_id;
-        if pipeline.enable_transactions {
-            let parser = RawTransactionPassthroughParser::new(program_id)?;
-            let instruction_decoder = idl_registry.get_instruction_decoder(program_id).cloned();
-            let event_decoder = idl_registry.get_event_decoder(program_id).cloned();
-            let instruction_forwarder = Some(RawInstructionForwarder::new(
-                sender.clone(),
-                instruction_decoder,
-                event_decoder,
-                pipeline.event_name_filters.clone(),
-                pipeline.instruction_name_filters.clone(),
-            ));
-            let handler = RawTransactionForwarder::new(sender.clone(), instruction_forwarder);
-            builder = builder.transaction(Pipeline::new(parser, [handler]));
+    for (program_id, subscriptions) in &program_subscriptions {
+        if !pipeline.enable_transactions {
+            continue;
         }
+
+        if subscriptions.event_subscriptions.is_empty()
+            && subscriptions.transaction_subscriptions.is_empty()
+        {
+            continue;
+        }
+
+        let parser = RawTransactionPassthroughParser::new(program_id)?;
+        let instruction_decoder = idl_registry.get_instruction_decoder(program_id).cloned();
+        let event_decoder = idl_registry.get_event_decoder(program_id).cloned();
+        let instruction_forwarder = Some(RawInstructionForwarder::new(
+            sender.clone(),
+            instruction_decoder,
+            event_decoder,
+            subscriptions.event_subscriptions.clone(),
+        ));
+        let handler = RawTransactionForwarder::new(
+            sender.clone(),
+            instruction_forwarder,
+            subscriptions.transaction_subscriptions.clone(),
+        );
+        builder = builder.transaction(Pipeline::new(parser, [handler]));
     }
 
     let slot_window_tracker = if metrics.slot_window_enabled {
@@ -451,8 +604,7 @@ struct RawInstructionForwarder {
     sender: mpsc::Sender<StreamEvent>,
     instruction_decoder: Option<crate::idl::InstructionDecoder>,
     event_decoder: Option<crate::idl::EventDecoder>,
-    event_name_filters: Vec<String>,
-    instruction_name_filters: Vec<String>,
+    event_subscriptions: Vec<EventSubscription>,
 }
 
 impl RawInstructionForwarder {
@@ -475,44 +627,38 @@ impl RawInstructionForwarder {
         let accounts = update.accounts.clone();
         let is_vote = update.shared.is_vote;
 
-        if let Some(decoder) = event_decoder.as_ref() {
-            match decoder.decode_from_instruction_data(&main_data) {
-                Ok(events) => {
-                    if !events.is_empty() {
-                        let mut forwarded_event = false;
+        if !self.event_subscriptions.is_empty() {
+            if let Some(decoder) = event_decoder.as_ref() {
+                match decoder.decode_from_instruction_data(&main_data) {
+                    Ok(events) => {
                         for decoded_event in events {
-                            if !self.event_name_filters.is_empty()
-                                && !self.should_include_event(&decoded_event.name)
+                            for subscription in self
+                                .event_subscriptions
+                                .iter()
+                                .filter(|sub| sub.event_name == decoded_event.name)
                             {
-                                continue;
+                                let event = RawEventEvent {
+                                    program: encode_base58(program.as_ref()),
+                                    slot,
+                                    signature: signature.clone(),
+                                    index: instruction_index,
+                                    parsed: decoded_event.clone(),
+                                    subscription_id: Some(subscription.id.clone()),
+                                };
+                                if sender.send(StreamEvent::Event { event }).await.is_err() {
+                                    break;
+                                }
                             }
-                            let event = RawEventEvent {
-                                program: encode_base58(program.as_ref()),
-                                slot,
-                                signature: signature.clone(),
-                                index: instruction_index,
-                                parsed: decoded_event,
-                            };
-                            if sender.send(StreamEvent::Event { event }).await.is_err() {
-                                break;
-                            }
-                            forwarded_event = true;
-                        }
-                        if forwarded_event {
-                            return Ok(());
                         }
                     }
+                    Err(_) => {}
                 }
-                Err(_) => {}
             }
         }
 
         let decoded = instruction_decoder.as_ref().and_then(|d| d.decode(&main_data).ok());
 
         if let Some(decoded_inst) = decoded {
-            if !self.should_include_instruction(&decoded_inst.name) {
-                return Ok(());
-            }
             let event = RawInstructionEvent {
                 program: encode_base58(program.as_ref()),
                 slot,
@@ -528,22 +674,28 @@ impl RawInstructionForwarder {
                 .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
         }
 
-        if let Some(decoder) = event_decoder.as_ref() {
-            for (inner_data_bytes, inner_program) in inner_data {
-                if let Ok(events) = decoder.decode_from_instruction_data(&inner_data_bytes) {
-                    for decoded_event in events {
-                        if !self.should_include_event(&decoded_event.name) {
-                            continue;
-                        }
-                        let event = RawEventEvent {
-                            program: encode_base58(inner_program.as_ref()),
-                            slot,
-                            signature: signature.clone(),
-                            index: instruction_index, // Use parent instruction index for inner instructions
-                            parsed: decoded_event,
-                        };
-                        if sender.send(StreamEvent::Event { event }).await.is_err() {
-                            break;
+        if !self.event_subscriptions.is_empty() {
+            if let Some(decoder) = event_decoder.as_ref() {
+                for (inner_data_bytes, inner_program) in inner_data {
+                    if let Ok(events) = decoder.decode_from_instruction_data(&inner_data_bytes) {
+                        for decoded_event in events {
+                            for subscription in self
+                                .event_subscriptions
+                                .iter()
+                                .filter(|sub| sub.event_name == decoded_event.name)
+                            {
+                                let event = RawEventEvent {
+                                    program: encode_base58(inner_program.as_ref()),
+                                    slot,
+                                    signature: signature.clone(),
+                                    index: instruction_index,
+                                    parsed: decoded_event.clone(),
+                                    subscription_id: Some(subscription.id.clone()),
+                                };
+                                if sender.send(StreamEvent::Event { event }).await.is_err() {
+                                    break;
+                                }
+                            }
                         }
                     }
                 }
@@ -557,13 +709,7 @@ impl RawInstructionForwarder {
 impl RawInstructionForwarder {
     fn decode_instruction_only(&self, update: &InstructionUpdate) -> Option<DecodedInstruction> {
         let decoder = self.instruction_decoder.as_ref()?;
-        let decoded = decoder.decode(&update.data).ok()?;
-        if !self.instruction_name_filters.is_empty()
-            && !self.should_include_instruction(&decoded.name)
-        {
-            return None;
-        }
-        Some(decoded)
+        decoder.decode(&update.data).ok()
     }
 
     fn decode_events_only(&self, update: &InstructionUpdate, instruction_index: u32) -> Vec<ParsedEvent> {
@@ -576,11 +722,6 @@ impl RawInstructionForwarder {
         match decoder.decode_from_instruction_data(&update.data) {
             Ok(decoded_events) => {
                 for event in decoded_events {
-                    if !self.event_name_filters.is_empty()
-                        && !self.should_include_event(&event.name)
-                    {
-                        continue;
-                    }
                     events.push(ParsedEvent {
                         index: instruction_index,
                         name: event.name,
@@ -594,11 +735,6 @@ impl RawInstructionForwarder {
         for inner in &update.inner {
             if let Ok(decoded_events) = decoder.decode_from_instruction_data(&inner.data) {
                 for event in decoded_events {
-                    if !self.event_name_filters.is_empty()
-                        && !self.should_include_event(&event.name)
-                    {
-                        continue;
-                    }
                     events.push(ParsedEvent {
                         index: instruction_index,
                         name: event.name,
@@ -615,30 +751,14 @@ impl RawInstructionForwarder {
         sender: mpsc::Sender<StreamEvent>,
         instruction_decoder: Option<crate::idl::InstructionDecoder>,
         event_decoder: Option<crate::idl::EventDecoder>,
-        event_name_filters: Vec<String>,
-        instruction_name_filters: Vec<String>,
+        event_subscriptions: Vec<EventSubscription>,
     ) -> Self {
         Self {
             sender,
             instruction_decoder,
             event_decoder,
-            event_name_filters,
-            instruction_name_filters,
+            event_subscriptions,
         }
-    }
-    
-    fn should_include_event(&self, event_name: &str) -> bool {
-        if self.event_name_filters.is_empty() {
-            return true;
-        }
-        self.event_name_filters.iter().any(|filter| filter == event_name)
-    }
-    
-    fn should_include_instruction(&self, instruction_name: &str) -> bool {
-        if self.instruction_name_filters.is_empty() {
-            return true;
-        }
-        self.instruction_name_filters.iter().any(|filter| filter == instruction_name)
     }
 }
 
@@ -696,16 +816,19 @@ impl VixenParser for RawTransactionPassthroughParser {
 struct RawTransactionForwarder {
     sender: mpsc::Sender<StreamEvent>,
     instruction_forwarder: Option<RawInstructionForwarder>,
+    transaction_subscriptions: Vec<TransactionSubscription>,
 }
 
 impl RawTransactionForwarder {
     fn new(
         sender: mpsc::Sender<StreamEvent>,
         instruction_forwarder: Option<RawInstructionForwarder>,
+        transaction_subscriptions: Vec<TransactionSubscription>,
     ) -> Self {
         Self {
             sender,
             instruction_forwarder,
+            transaction_subscriptions,
         }
     }
 }
@@ -717,6 +840,7 @@ impl Handler<TransactionUpdate> for RawTransactionForwarder {
     ) -> impl std::future::Future<Output = HandlerResult<()>> + Send {
         let sender = self.sender.clone();
         let instruction_forwarder = self.instruction_forwarder.clone();
+        let transaction_subscriptions = self.transaction_subscriptions.clone();
         let update = update.clone();
         async move {
             let mut parsed_instructions = Vec::new();
@@ -752,11 +876,57 @@ impl Handler<TransactionUpdate> for RawTransactionForwarder {
                 }
             }
 
-            let event = build_transaction_event(&update, parsed_instructions, parsed_events);
-            sender
-                .send(StreamEvent::Transaction { event })
-                .await
-                .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
+            if transaction_subscriptions.is_empty() {
+                return Ok(());
+            }
+
+            for subscription in transaction_subscriptions {
+                let instructions = if subscription.instruction_name_filters.is_empty() {
+                    parsed_instructions.clone()
+                } else {
+                    parsed_instructions
+                        .iter()
+                        .cloned()
+                        .filter(|ix| subscription
+                            .instruction_name_filters
+                            .iter()
+                            .any(|filter| filter == &ix.name))
+                        .collect()
+                };
+
+                let events = if subscription.event_name_filters.is_empty() {
+                    parsed_events.clone()
+                } else {
+                    parsed_events
+                        .iter()
+                        .cloned()
+                        .filter(|ev| subscription
+                            .event_name_filters
+                            .iter()
+                            .any(|filter| filter == &ev.name))
+                        .collect()
+                };
+
+                let instruction_match = subscription.instruction_name_filters.is_empty()
+                    || !instructions.is_empty();
+                let event_match =
+                    subscription.event_name_filters.is_empty() || !events.is_empty();
+
+                if !instruction_match && !event_match {
+                    continue;
+                }
+
+                let event = build_transaction_event(
+                    &update,
+                    instructions,
+                    events,
+                    Some(subscription.id.clone()),
+                );
+                sender
+                    .send(StreamEvent::Transaction { event })
+                    .await
+                    .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
+            }
 
             Ok(())
         }
@@ -821,6 +991,7 @@ fn build_transaction_event(
     update: &TransactionUpdate,
     parsed_instructions: Vec<DecodedInstruction>,
     parsed_events: Vec<ParsedEvent>,
+    subscription_id: Option<String>,
 ) -> RawTransactionEvent {
     use base64::Engine;
 
@@ -964,6 +1135,7 @@ fn build_transaction_event(
         meta: tx_meta,
         parsed_instructions,
         parsed_events,
+        subscription_id,
     }
 }
 
