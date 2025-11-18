@@ -2,6 +2,7 @@ import { RustIndexer } from "../indexer/rust-indexer";
 import type { RustIndexerConfig } from "../indexer/rust-indexer";
 
 import PumpFunIdl from './idl';
+import PumpFunLegacyIdl from "./legacy-idl";
 
 /**
  * Example demonstrating the high-performance gRPC-based indexer
@@ -65,7 +66,8 @@ async function main() {
   
   await indexer.onTransaction({
     programId: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
-    idl: PumpFunIdl,
+    idl: PumpFunLegacyIdl,
+    instructionNames: ["buy"],
     handler: async (transaction, db) => {
       console.log("\n💸 Transaction received:\n");
       console.log("  Hash:", transaction.hash);

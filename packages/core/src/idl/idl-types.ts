@@ -1,5 +1,6 @@
 // Simple overridable primitives via generics (no module augmentation required)
 import type { Idl } from "@coral-xyz/anchor";
+import type { LegacyIdl } from "./legacy-idl-types";
 
 export type PrimitiveConfig<
   PK = string,
@@ -22,7 +23,7 @@ type DeepReadonly<T> =
   T;
 
 export type ReadonlyIdl = DeepReadonly<Idl>;
-export type AnchorIdl = Idl | ReadonlyIdl;
+export type AnchorIdl = Idl | ReadonlyIdl | LegacyIdl;
 
 export function toMutableIdl(idl: AnchorIdl): Idl {
   return idl as Idl;
@@ -93,7 +94,7 @@ export type IdlLike = {
 
 // Unions of names for autocomplete
 export type EventNames<IDL extends IdlLike> = IDL extends { events: readonly { name: infer N }[] } ? N : never;
-export type InstructionNames<IDL extends IdlLike> = IDL extends { instructions: readonly { name: infer N }[] } ? N : never;
+export type InstructionNames<IDL> = IDL extends { instructions: readonly { name: infer N }[] } ? N : never;
 
 // Given IDL-like "fields" array -> build an object { name: resolved-type }
 export type FieldsToObject<Fields extends readonly IdlField[], P extends PrimitiveConfig = DefaultPrimitives> = {

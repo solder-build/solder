@@ -23,7 +23,7 @@ export interface RegisteredProgram {
 }
 
 export interface EventHandler<
-  TIdl extends AnchorIdl = Idl,
+  TIdl extends AnchorIdl = AnchorIdl,
   TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
 > {
   id: string;
@@ -37,7 +37,7 @@ export interface EventHandler<
 }
 
 export interface OnEventConfig<
-  TIdl extends AnchorIdl = Idl,
+  TIdl extends AnchorIdl = AnchorIdl,
   TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
 > {
   programId: string;
@@ -75,15 +75,24 @@ export type ExtractEventData<
     : never
   : never;
 
+type EventPayload<
+  TIdl extends AnchorIdl,
+  TEventName extends ExtractEventNames<TIdl>
+> = TIdl extends LegacyIdl
+  ? LegacyEventType<TIdl, TEventName & string>
+  : TIdl extends AnchorIdl
+    ? EventType<TIdl, TEventName>
+    : never;
+
 // Type for the complete event object passed to handlers (supports both legacy and current IDL)
 export interface IndexerEvent<
-  TIdl extends AnchorIdl = Idl,
+  TIdl extends AnchorIdl = AnchorIdl,
   TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
 > {
   name: string;
   contract: string;
   type: string;
-  parsed: EventType<TIdl, TEventName>;
+  parsed: EventPayload<TIdl, TEventName>;
   timestamp: string;
   transaction: {
     hash: string;
