@@ -88,8 +88,6 @@ pub struct TransactionSubscriptionConfig {
     #[serde(flatten)]
     pub idl: IdlConfig,
     #[serde(default)]
-    pub event_name_filters: Vec<String>,
-    #[serde(default)]
     pub instruction_name_filters: Vec<String>,
 }
 
@@ -102,7 +100,6 @@ impl Default for TransactionSubscriptionConfig {
                 idl_path: None,
                 idl_json: None,
             },
-            event_name_filters: Vec::new(),
             instruction_name_filters: Vec::new(),
         }
     }
@@ -123,7 +120,6 @@ struct EventSubscription {
 #[derive(Debug, Clone)]
 struct TransactionSubscription {
     id: String,
-    event_name_filters: Vec<String>,
     instruction_name_filters: Vec<String>,
 }
 
@@ -427,7 +423,6 @@ fn build_pipelines(
             .or_default();
         entry.transaction_subscriptions.push(TransactionSubscription {
             id: subscription.id.clone(),
-            event_name_filters: subscription.event_name_filters.clone(),
             instruction_name_filters: subscription.instruction_name_filters.clone(),
         });
     }
@@ -890,42 +885,24 @@ impl Handler<TransactionUpdate> for RawTransactionForwarder {
                         .filter(|ix| subscription
                             .instruction_name_filters
                             .iter()
-                            .any(|filter| filter == &ix.name))
+                            .any(|filter| filter.eq_ignore_ascii_case(&ix.name)))
                         .collect()
                 };
 
-                let events = if subscription.event_name_filters.is_empty() {
-                    parsed_events.clone()
-                } else {
-                    parsed_events
-                        .iter()
-                        .cloned()
-                        .filter(|ev| subscription
-                            .event_name_filters
-                            .iter()
-                            .any(|filter| filter == &ev.name))
-                        .collect()
-                };
-
-                let instruction_match = subscription.instruction_name_filters.is_empty()
-                    || !instructions.is_empty();
-                let event_match =
-                    subscription.event_name_filters.is_empty() || !events.is_empty();
-
-                if !instruction_match && !event_match {
-                    continue;
+                if !instructions.is_empty()
+                    || subscription.instruction_name_filters.is_empty()
+                {
+                    let event = build_transaction_event(
+                        &update,
+                        instructions,
+                        parsed_events.clone(),
+                        Some(subscription.id.clone()),
+                    );
+                    sender
+                        .send(StreamEvent::Transaction { event })
+                        .await
+                        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
                 }
-
-                let event = build_transaction_event(
-                    &update,
-                    instructions,
-                    events,
-                    Some(subscription.id.clone()),
-                );
-                sender
-                    .send(StreamEvent::Transaction { event })
-                    .await
-                    .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })?;
             }
 
             Ok(())

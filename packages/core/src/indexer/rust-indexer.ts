@@ -48,7 +48,6 @@ export interface TransactionHandler {
   id: string;
   programId: string;
   idl?: AnchorIdl;
-  eventNames?: string[];
   instructionNames?: string[];
   handler: (
     transaction: any,
@@ -59,7 +58,6 @@ export interface TransactionHandler {
 export interface OnTransactionConfig {
   programId: string;
   idl?: AnchorIdl;
-  eventNames?: string[];
   instructionNames?: string[];
   handler: (
     transaction: any,
@@ -135,8 +133,7 @@ export class RustIndexer {
     config: OnTransactionConfig
   ): Promise<() => void> {
     const hasFilters =
-      (config.eventNames && config.eventNames.length > 0) ||
-      (config.instructionNames && config.instructionNames.length > 0);
+      config.instructionNames && config.instructionNames.length > 0;
 
     if (hasFilters && !config.idl) {
       throw new Error(
@@ -150,7 +147,6 @@ export class RustIndexer {
       id: handlerId,
       programId: config.programId,
       idl: config.idl,
-      eventNames: config.eventNames,
       instructionNames: config.instructionNames,
       handler: config.handler,
     };
@@ -293,7 +289,6 @@ export class RustIndexer {
       const subscription: Record<string, unknown> = {
         id: handler.id,
         'program-id': handler.programId,
-        'event-name-filters': handler.eventNames ?? [],
         'instruction-name-filters': handler.instructionNames ?? [],
       };
       if (handler.idl) {

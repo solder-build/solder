@@ -66,7 +66,6 @@ async function main() {
   await indexer.onTransaction({
     programId: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
     idl: PumpFunIdl,
-    instructionNames: ["buy"],
     handler: async (transaction, db) => {
       console.log("\n💸 Transaction received:\n");
       console.log("  Hash:", transaction.hash);
