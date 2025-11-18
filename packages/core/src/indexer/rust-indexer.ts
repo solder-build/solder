@@ -191,25 +191,15 @@ export class RustIndexer {
     const nativeConfig = this.buildConfig();
 
     if (this.eventHandlers.size > 0) {
-      this.nativeIndexer.onEvent(async (...args: unknown[]) => {
+      this.nativeIndexer.onEvent(async (err: string, payload: any) => {
         try {
-          const payload = (args as unknown[])[0] ?? (args as unknown[])[1] ?? (args as unknown[])[2] ?? null;
-
-          if (payload == null) return;
-
-          let parsed: any;
-          if (typeof payload === 'string') {
-            parsed = JSON.parse(payload);
-          } else {
-            parsed = payload;
-          }
-
-          if (!parsed) {
+          if (err) {
+            console.error('Error handling event from native subscription:', err);
             return;
           }
 
-          if (parsed.type === 'event' && parsed.event) {
-            await this.handleEvent(parsed.event);
+          if (payload.type === 'event' && payload.event) {
+            await this.handleEvent(payload.event);
           }
         } catch (error) {
           console.error('Error handling event from native subscription:', error);
@@ -218,25 +208,15 @@ export class RustIndexer {
     }
 
     if (this.transactionHandlers.size > 0) {
-      this.nativeIndexer.onTransaction(async (...args: unknown[]) => {
+      this.nativeIndexer.onTransaction(async (err: string, payload: any) => {
         try {
-          const payload = (args as unknown[])[0] ?? (args as unknown[])[1] ?? (args as unknown[])[2] ?? null;
-
-          if (payload == null) return;
-
-          let parsed: any;
-          if (typeof payload === 'string') {
-            parsed = JSON.parse(payload);
-          } else {
-            parsed = payload;
-          }
-
-          if (!parsed) {
+          if (err) {
+            console.error('Error handling transaction from native subscription:', err);
             return;
           }
 
-          if (parsed.type === 'transaction' && parsed.event) {
-            await this.handleTransaction(parsed.event);
+          if (payload.type === 'transaction' && payload.event) {
+            await this.handleTransaction(payload.event);
           }
         } catch (error) {
           console.error('Error handling transaction from native subscription:', error);
@@ -248,34 +228,6 @@ export class RustIndexer {
 
     this.isRunning = true;
     console.log('🚀 Rust indexer started with gRPC streaming');
-  }
-
-  private async handleNativeEvent(rawEvent: any): Promise<void> {
-    try {
-      const eventType = rawEvent.type;
-
-      if (eventType === 'slot') {
-        await this.handleSlotUpdate(rawEvent.event);
-        return;
-      }
-
-      if (eventType === 'event') {
-        await this.handleEvent(rawEvent.event);
-        return;
-      }
-
-      if (eventType === 'transaction') {
-        await this.handleTransaction(rawEvent.event);
-        return;
-      }
-
-      if (eventType === 'error') {
-        console.error('Rust indexer error:', rawEvent.error);
-        return;
-      }
-    } catch (error) {
-      console.error('Error handling native event:', error);
-    }
   }
 
   private buildConfig() {
