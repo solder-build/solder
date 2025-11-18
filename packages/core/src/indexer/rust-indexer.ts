@@ -5,7 +5,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { CursorStore } from "./db";
 import type { OnEventConfig, EventHandler, ExtractEventNames } from "./indexer";
-import type { AnchorIdl } from "../idl/idl-types";
+import type { AnchorIdl, InstructionNames } from "../idl/idl-types";
 
 function loadNativeAddon(): any {
   const candidates = [
@@ -55,10 +55,13 @@ export interface TransactionHandler {
   ) => Promise<void> | void;
 }
 
-export interface OnTransactionConfig {
+export interface OnTransactionConfig<
+  TIdl extends AnchorIdl = AnchorIdl,
+  TInstructionName extends InstructionNames<TIdl> & string = InstructionNames<TIdl> & string,
+> {
   programId: string;
-  idl?: AnchorIdl;
-  instructionNames?: string[];
+  idl?: TIdl;
+  instructionNames?: TInstructionName[];
   handler: (
     transaction: any,
     db: NodePgDatabase<Record<string, never>> & { $client: Pool },
@@ -129,8 +132,11 @@ export class RustIndexer {
     };
   }
 
-  async onTransaction(
-    config: OnTransactionConfig
+  async onTransaction<
+    TIdl extends AnchorIdl,
+    TInstructionName extends InstructionNames<TIdl> & string = InstructionNames<TIdl> & string,
+  >(
+    config: OnTransactionConfig<TIdl, TInstructionName>
   ): Promise<() => void> {
     const hasFilters =
       config.instructionNames && config.instructionNames.length > 0;
