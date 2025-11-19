@@ -17,9 +17,9 @@ async function main() {
   console.log("🚀 Starting Solder gRPC Indexer Example (Rust/Yellowstone)");
 
   // Validate environment variables
-  const grpcEndpoint = "https://solder-solanam-6597.mainnet.rpcpool.com";
-  const xToken = "0dd351ec-3106-48dd-946b-acd8e9d5c38c";
-  const databaseUrl = "postgresql://postgres:password123@127.0.0.1:6500/app";
+  const grpcEndpoint = process.env.GRPC_ENDPOINT;
+  const xToken = process.env.GRPC_TOKEN;
+  const databaseUrl = process.env.DATABASE_URL;
 
   if (!grpcEndpoint || !xToken || !databaseUrl) {
     console.error("❌ Missing environment variables");
