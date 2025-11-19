@@ -298,27 +298,6 @@ export class RustIndexer {
     };
   }
 
-  private async handleSlotUpdate(slot: any): Promise<void> {
-    if (!this.cursorStore) {
-      return;
-    }
-
-    const status = typeof slot.status === 'string' ? slot.status.toLowerCase() : '';
-    if (status !== 'confirmed' && status !== 'finalized') {
-      return;
-    }
-
-    try {
-      const blockIdentifier = slot.parent !== undefined && slot.parent !== null
-        ? String(slot.parent)
-        : status;
-
-      await this.cursorStore.upsertCursor(this.cursorKey, Number(slot.slot ?? 0), blockIdentifier);
-    } catch (error) {
-      console.error('Failed to persist cursor from slot update:', error);
-    }
-  }
-
   private async handleEvent(event: any): Promise<void> {
     const subscriptionId = event.subscription_id ?? event.subscriptionId;
 
