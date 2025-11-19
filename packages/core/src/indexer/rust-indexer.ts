@@ -198,8 +198,16 @@ export class RustIndexer {
             return;
           }
 
-          if (payload.type === 'event' && payload.event) {
-            await this.handleEvent(payload.event);
+          let parsed;
+
+          if (typeof payload === 'string') {
+            parsed = JSON.parse(payload);
+          } else {
+            parsed = payload;
+          }
+
+          if (parsed.type === 'event' && parsed.event) {
+            await this.handleEvent(parsed.event);
           }
         } catch (error) {
           console.error('Error handling event from native subscription:', error);
@@ -215,8 +223,16 @@ export class RustIndexer {
             return;
           }
 
-          if (payload.type === 'transaction' && payload.event) {
-            await this.handleTransaction(payload.event);
+          let parsed;
+          
+          if (typeof payload === 'string') {
+            parsed = JSON.parse(payload);
+          } else {
+            parsed = payload;
+          }
+
+          if (parsed.type === 'transaction' && parsed.event) {
+            await this.handleTransaction(parsed.event);
           }
         } catch (error) {
           console.error('Error handling transaction from native subscription:', error);
