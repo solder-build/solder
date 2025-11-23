@@ -10,6 +10,6 @@ export {
 } from "./indexer";
 
 export {
-  RustIndexer,
-  type RustIndexerConfig,
-} from "./rust-indexer";
+  GrpcIndexer,
+  type GrpcIndexerConfig,
+} from "./grpc-indexer";

@@ -16,10 +16,10 @@
  * @author Solder Team
  */
 
-import { Indexer, RpcClient, type ExtractEventNames, type IndexerConfig, type IndexerEvent, type RustIndexerConfig } from "@solder-build/core";
+import { Indexer, RpcClient, type ExtractEventNames, type IndexerConfig, type IndexerEvent, type GrpcIndexerConfig } from "@solder-build/core";
 import { tradesTable } from "../../solder.schema.js"; // 🔧 MODIFY: Import your custom table schema
 import { pumpFunIdl } from "../idls/pump-fun.js";
-import { RustIndexer } from "@solder-build/core";
+import { GrpcIndexer } from "@solder-build/core";
 
 
 /**
@@ -116,7 +116,7 @@ export const initializeIndexer = async () => {
 
     /// configure your indexer here
 
-    const config: RustIndexerConfig = {
+    const config: GrpcIndexerConfig = {
       ...INDEXER_CONFIG,
       mode: 'grpc',
       databaseUrl: INDEXER_CONFIG.databaseUrl ?? '',
@@ -125,7 +125,7 @@ export const initializeIndexer = async () => {
       subscriberName: 'solder-grpc-example',
       cursorKey: 'grpc-indexer-example',
     };
-  const indexer = new RustIndexer(config);
+  const indexer = new GrpcIndexer(config);
 
   /// configure your event listeners here
   await indexer.onEvent<typeof pumpFunIdl, "TradeEvent">({
@@ -171,4 +171,4 @@ export const initializeIndexer = async () => {
  * await stopIndexer(indexer);
  * ```
  */
-export const stopIndexer = async (indexer: Indexer | RustIndexer) => indexer.stop();
+export const stopIndexer = async (indexer: Indexer | GrpcIndexer) => indexer.stop();

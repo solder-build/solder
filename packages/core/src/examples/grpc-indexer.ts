@@ -1,5 +1,5 @@
-import { RustIndexer } from "../indexer/rust-indexer";
-import type { RustIndexerConfig } from "../indexer/rust-indexer";
+import { GrpcIndexer } from "../indexer/grpc-indexer";
+import type { GrpcIndexerConfig } from "../indexer/grpc-indexer";
 
 import PumpFunIdl from './idl';
 import PumpFunLegacyIdl from "./legacy-idl";
@@ -29,7 +29,7 @@ async function main() {
     process.exit(1);
   }
 
-  const config: RustIndexerConfig = {
+  const config: GrpcIndexerConfig = {
     mode: 'grpc',
     databaseUrl,
     grpcEndpoint,
@@ -44,7 +44,7 @@ async function main() {
   console.log(`  - Commitment: ${config.commitmentLevel}`);
   console.log(`  - Database: ${databaseUrl ? 'Enabled' : 'Disabled'}`);
 
-  const indexer = new RustIndexer(config);
+  const indexer = new GrpcIndexer(config);
 
   console.log("\n📡 Registering event handlers...");
   

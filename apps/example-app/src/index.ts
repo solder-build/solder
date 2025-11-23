@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import { createCrudApp, Indexer, makeDb, RustIndexer, watchSchema } from "@solder-build/core";
+import { createCrudApp, Indexer, makeDb, GrpcIndexer, watchSchema } from "@solder-build/core";
 import { schema, tables } from "../solder.schema.js";
 import { solderConfig } from "../solder.config.js";
 import { initializeIndexer, stopIndexer } from "./solder/indexer.js";
@@ -20,7 +20,7 @@ app.get("/", (c) => {
   return c.text("Hello Hono!");
 });
 
-let indexer: Indexer | RustIndexer | null = null;
+let indexer: Indexer | GrpcIndexer | null = null;
 
 // Create a db connection using the shared core helper and schema
 console.log("[APP] Creating database connection...");
