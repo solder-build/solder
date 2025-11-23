@@ -15,7 +15,6 @@ export interface IndexerConfig {
   enableUIProgress?: boolean; // enable UI progress
 }
 
-
 export interface RegisteredProgram {
   programId: string;
   eventTypes: string[];
@@ -611,3 +610,4 @@ export class Indexer {
     return remaining / rps;
   }
 }
+

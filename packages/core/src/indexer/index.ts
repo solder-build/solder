@@ -13,3 +13,12 @@ export {
   RustIndexer,
   type RustIndexerConfig,
 } from "./rust-indexer";
+
+export {
+  createIndexer,
+  createRpcIndexer,
+  createGrpcIndexer,
+  type RpcIndexerConfig,
+  type GrpcIndexerConfig,
+  type UnifiedIndexerConfig
+} from "./factory";

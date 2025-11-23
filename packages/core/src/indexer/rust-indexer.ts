@@ -5,6 +5,7 @@ import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { CursorStore } from "./db";
 import type { OnEventConfig, EventHandler, ExtractEventNames } from "./indexer";
+import type { GrpcIndexerConfig } from "./factory";
 import type { AnchorIdl, InstructionNames } from "../idl/idl-types";
 
 function loadNativeAddon(): any {
@@ -70,7 +71,7 @@ export interface OnTransactionConfig<
 
 export class RustIndexer {
   private nativeIndexer: any;
-  private config: RustIndexerConfig;
+  private config: GrpcIndexerConfig;
   private eventHandlers: Map<string, EventHandler<any>> = new Map();
   private transactionHandlers: Map<string, TransactionHandler> = new Map();
   private db: (NodePgDatabase<Record<string, never>> & { $client: Pool }) | null = null;
@@ -80,15 +81,17 @@ export class RustIndexer {
   private isRunning = false;
   private handlerCounter = 0;
 
-  constructor(config: RustIndexerConfig) {
+  constructor(config: GrpcIndexerConfig) {
     if (!nativeAddon) {
       throw new Error('Native addon not available. Ensure the Rust addon is built.');
     }
-    
+
+    // Mode is guaranteed to be 'grpc' by type system
+
     this.config = config;
     this.nativeIndexer = new nativeAddon.Indexer();
     this.cursorKey = config.cursorKey || "grpc-indexer";
-    
+
     if (config.databaseUrl) {
       this.setupDatabase(config.databaseUrl);
     }
