@@ -14,6 +14,7 @@ path = "src/lib.rs"
 [dependencies]
 yellowstone-vixen = { workspace = true }
 yellowstone-vixen-yellowstone-fumarole-source = "0.3.1"
+yellowstone-vixen-yellowstone-grpc-source = "0.3.1"
 yellowstone-vixen-core = { workspace = true }
 yellowstone-grpc-proto = "9.1.0"
 clap = { version = "4.5", features = ["derive"] }

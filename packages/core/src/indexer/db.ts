@@ -61,7 +61,6 @@ export class CursorStore {
   async upsertCursor(cursorKey: string, lastSlot: number, lastBlockHash: string): Promise<void> {
     if (!this.pool) throw new Error("CursorStore not connected");
     
-    // Ensure table exists before upserting
     await this.ensureTableExists();
     
     await this.pool.query(
@@ -72,6 +71,17 @@ export class CursorStore {
                      last_block_hash = EXCLUDED.last_block_hash,
                      updated_at = NOW()`,
       [cursorKey, lastSlot, lastBlockHash]
+    );
+  }
+
+  async deleteCursor(cursorKey: string): Promise<void> {
+    if (!this.pool) throw new Error("CursorStore not connected");
+    
+    await this.ensureTableExists();
+    
+    await this.pool.query(
+      `DELETE FROM indexer_state WHERE cursor_key = $1`,
+      [cursorKey]
     );
   }
 

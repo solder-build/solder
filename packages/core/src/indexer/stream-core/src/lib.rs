@@ -1,6 +1,13 @@
-use std::{collections::{HashMap, HashSet}, fs, path::PathBuf, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::PathBuf,
+    sync::Arc,
+};
 
 use anyhow::{Context, Result, anyhow};
+use clap::Args;
+use serde::de::{self, DeserializeOwned};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use tokio::{
@@ -12,13 +19,15 @@ use yellowstone_vixen::{
     Runtime,
     config::VixenConfig,
     handler::{Handler, HandlerResult, Pipeline},
+    sources::SourceTrait,
     vixen_core::{
-        AccountUpdate, ParseResult, Parser as VixenParser, Prefilter, SlotUpdate, TransactionUpdate,
-        instruction::InstructionUpdate,
+        AccountUpdate, ParseResult, Parser as VixenParser, Prefilter, SlotUpdate,
+        TransactionUpdate, instruction::InstructionUpdate,
     },
 };
 use yellowstone_vixen_core::Pubkey as VixenPubkey;
 use yellowstone_vixen_yellowstone_fumarole_source::{FumaroleConfig, YellowstoneFumaroleSource};
+use yellowstone_vixen_yellowstone_grpc_source::{YellowstoneGrpcConfig, YellowstoneGrpcSource};
 
 mod idl;
 use crate::idl::{DecodedEvent, DecodedInstruction, IdlConfig, IdlRegistry};
@@ -27,13 +36,78 @@ pub const DEFAULT_CHANNEL_CAPACITY: usize = 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct AppConfig {
+pub struct AppConfigFumarole {
     #[serde(flatten)]
     pub vixen: VixenConfig<FumaroleConfig>,
     #[serde(default)]
     pub pipeline: PipelineConfig,
     #[serde(default)]
     pub metrics: MetricsConfig,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct AppConfigGrpc {
+    #[serde(flatten)]
+    pub vixen: VixenConfig<YellowstoneGrpcConfig>,
+    #[serde(default)]
+    pub pipeline: PipelineConfig,
+    #[serde(default)]
+    pub metrics: MetricsConfig,
+}
+
+#[derive(Debug)]
+pub enum AppConfig {
+    Fumarole(AppConfigFumarole),
+    Grpc(AppConfigGrpc),
+}
+
+impl<'de> Deserialize<'de> for AppConfig {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = JsonValue::deserialize(deserializer)?;
+        let source_kind = value
+            .get("source-kind")
+            .or_else(|| value.get("source_kind"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(SourceKind::Fumarole.label());
+        let kind = SourceKind::from_label(source_kind)
+            .ok_or_else(|| de::Error::custom(format!("unsupported source-kind '{source_kind}'")))?;
+
+        match kind {
+            SourceKind::Grpc => serde_json::from_value::<AppConfigGrpc>(value)
+                .map(AppConfig::Grpc)
+                .map_err(de::Error::custom),
+            SourceKind::Fumarole => serde_json::from_value::<AppConfigFumarole>(value)
+                .map(AppConfig::Fumarole)
+                .map_err(de::Error::custom),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SourceKind {
+    Fumarole,
+    Grpc,
+}
+
+impl SourceKind {
+    fn from_label(label: &str) -> Option<Self> {
+        match label.trim().to_ascii_lowercase().as_str() {
+            "" | "fumarole" => Some(SourceKind::Fumarole),
+            "grpc" | "dragonmouth" | "yellowstone-grpc" | "geyser" => Some(SourceKind::Grpc),
+            _ => None,
+        }
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            SourceKind::Fumarole => "fumarole",
+            SourceKind::Grpc => "grpc",
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -153,11 +227,7 @@ fn load_idl_for_config(
                 return;
             }
             Err(e) => {
-                tracing::warn!(
-                    "Failed to load IDL from {}: {}",
-                    resolved_path.display(),
-                    e
-                );
+                tracing::warn!("Failed to load IDL from {}: {}", resolved_path.display(), e);
             }
         }
     }
@@ -344,22 +414,61 @@ pub struct ReturnData {
     pub data_base64: String,
 }
 
-struct PipelineOutputs {
-    builder: yellowstone_vixen::builder::RuntimeBuilder<YellowstoneFumaroleSource>,
+struct PipelineOutputs<S: SourceTrait> {
+    builder: yellowstone_vixen::builder::RuntimeBuilder<S>,
     slot_window_tracker: Option<SlotWindowTracker>,
 }
 
-pub async fn run_with_sender(config: AppConfig, config_path: Option<&PathBuf>, sender: mpsc::Sender<StreamEvent>) -> Result<()> {
-    let AppConfig {
-        vixen,
-        pipeline,
-        metrics,
-    } = config;
+pub async fn run_with_sender(
+    config: AppConfig,
+    config_path: Option<&PathBuf>,
+    sender: mpsc::Sender<StreamEvent>,
+) -> Result<()> {
+    match config {
+        AppConfig::Fumarole(inner) => {
+            run_with_source::<YellowstoneFumaroleSource>(
+                inner.vixen,
+                inner.pipeline,
+                inner.metrics,
+                config_path,
+                sender,
+            )
+            .await
+        }
+        AppConfig::Grpc(inner) => {
+            run_with_source::<YellowstoneGrpcSource>(
+                inner.vixen,
+                inner.pipeline,
+                inner.metrics,
+                config_path,
+                sender,
+            )
+            .await
+        }
+    }
+}
 
+async fn run_with_source<S>(
+    vixen: VixenConfig<S::Config>,
+    pipeline: PipelineConfig,
+    metrics: MetricsConfig,
+    config_path: Option<&PathBuf>,
+    sender: mpsc::Sender<StreamEvent>,
+) -> Result<()>
+where
+    S: SourceTrait,
+    S::Config: Args + DeserializeOwned + std::fmt::Debug,
+{
     let PipelineOutputs {
         mut builder,
         slot_window_tracker,
-    } = build_pipelines(&pipeline, config_path, sender.clone(), &metrics)?;
+    } = build_pipelines(
+        Runtime::<S>::builder(),
+        &pipeline,
+        config_path,
+        sender.clone(),
+        &metrics,
+    )?;
 
     if let Some(tracker) = slot_window_tracker {
         builder = builder.slot(Pipeline::new(SlotMetricsPassthroughParser, [tracker]));
@@ -373,14 +482,13 @@ pub async fn run_with_sender(config: AppConfig, config_path: Option<&PathBuf>, s
         .map_err(|e| anyhow!("runtime terminated: {e}"))
 }
 
-fn build_pipelines(
+fn build_pipelines<S: SourceTrait>(
+    mut builder: yellowstone_vixen::builder::RuntimeBuilder<S>,
     pipeline: &PipelineConfig,
     config_path: Option<&PathBuf>,
     sender: mpsc::Sender<StreamEvent>,
     metrics: &MetricsConfig,
-) -> Result<PipelineOutputs> {
-    let mut builder = Runtime::<YellowstoneFumaroleSource>::builder();
-
+) -> Result<PipelineOutputs<S>> {
     let mut idl_registry = IdlRegistry::new();
     let mut loaded_programs = HashSet::new();
     let mut program_subscriptions: HashMap<String, ProgramSubscriptionSet> = HashMap::new();
@@ -421,10 +529,12 @@ fn build_pipelines(
         let entry = program_subscriptions
             .entry(subscription.idl.program_id.clone())
             .or_default();
-        entry.transaction_subscriptions.push(TransactionSubscription {
-            id: subscription.id.clone(),
-            instruction_name_filters: subscription.instruction_name_filters.clone(),
-        });
+        entry
+            .transaction_subscriptions
+            .push(TransactionSubscription {
+                id: subscription.id.clone(),
+                instruction_name_filters: subscription.instruction_name_filters.clone(),
+            });
     }
 
     if pipeline.slots {
@@ -603,7 +713,11 @@ struct RawInstructionForwarder {
 }
 
 impl RawInstructionForwarder {
-    async fn forward_instruction(&self, update: &InstructionUpdate, instruction_index: Option<u32>) -> HandlerResult<()> {
+    async fn forward_instruction(
+        &self,
+        update: &InstructionUpdate,
+        instruction_index: Option<u32>,
+    ) -> HandlerResult<()> {
         use base64::Engine;
 
         let sender = self.sender.clone();
@@ -651,7 +765,9 @@ impl RawInstructionForwarder {
             }
         }
 
-        let decoded = instruction_decoder.as_ref().and_then(|d| d.decode(&main_data).ok());
+        let decoded = instruction_decoder
+            .as_ref()
+            .and_then(|d| d.decode(&main_data).ok());
 
         if let Some(decoded_inst) = decoded {
             let event = RawInstructionEvent {
@@ -707,7 +823,11 @@ impl RawInstructionForwarder {
         decoder.decode(&update.data).ok()
     }
 
-    fn decode_events_only(&self, update: &InstructionUpdate, instruction_index: u32) -> Vec<ParsedEvent> {
+    fn decode_events_only(
+        &self,
+        update: &InstructionUpdate,
+        instruction_index: u32,
+    ) -> Vec<ParsedEvent> {
         let mut events = Vec::new();
         let decoder = match self.event_decoder.as_ref() {
             Some(decoder) => decoder,
@@ -860,9 +980,8 @@ impl Handler<TransactionUpdate> for RawTransactionForwarder {
                             if let Some(decoded) = forwarder.decode_instruction_only(&instruction) {
                                 parsed_instructions.push(decoded);
                             }
-                            parsed_events.extend(
-                                forwarder.decode_events_only(&instruction, idx as u32),
-                            );
+                            parsed_events
+                                .extend(forwarder.decode_events_only(&instruction, idx as u32));
                         }
                     }
                     Err(err) => {
@@ -882,16 +1001,16 @@ impl Handler<TransactionUpdate> for RawTransactionForwarder {
                     parsed_instructions
                         .iter()
                         .cloned()
-                        .filter(|ix| subscription
-                            .instruction_name_filters
-                            .iter()
-                            .any(|filter| filter.eq_ignore_ascii_case(&ix.name)))
+                        .filter(|ix| {
+                            subscription
+                                .instruction_name_filters
+                                .iter()
+                                .any(|filter| filter.eq_ignore_ascii_case(&ix.name))
+                        })
                         .collect()
                 };
 
-                if !instructions.is_empty()
-                    || subscription.instruction_name_filters.is_empty()
-                {
+                if !instructions.is_empty() || subscription.instruction_name_filters.is_empty() {
                     let event = build_transaction_event(
                         &update,
                         instructions,
@@ -1019,16 +1138,13 @@ fn build_transaction_event(
     };
 
     let meta = meta.unwrap_or_default();
-    let err_base64 = meta
-        .err
-        .as_ref()
-        .and_then(|e| {
-            if e.err.is_empty() {
-                None
-            } else {
-                Some(base64::engine::general_purpose::STANDARD.encode(&e.err))
-            }
-        });
+    let err_base64 = meta.err.as_ref().and_then(|e| {
+        if e.err.is_empty() {
+            None
+        } else {
+            Some(base64::engine::general_purpose::STANDARD.encode(&e.err))
+        }
+    });
     let return_data = meta.return_data.as_ref().map(|rd| ReturnData {
         program_id: encode_base58(&rd.program_id),
         data_base64: base64::engine::general_purpose::STANDARD.encode(rd.data.clone()),

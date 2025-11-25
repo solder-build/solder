@@ -37,11 +37,14 @@ export interface GrpcIndexerConfig {
   mode: 'grpc';
   databaseUrl: string;
   grpcEndpoint: string;
-  xToken?: string;
+  sourceKind: 'grpc' | 'fumarole';
+  xToken: string;
   subscriberName?: string;
   commitmentLevel?: 'processed' | 'confirmed' | 'finalized';
   fromSlot?: number;
   cursorKey?: string;
+  timeout?: number;
+  resetOnStart?: boolean;
 }
 
 export interface TransactionHandler {
@@ -174,21 +177,43 @@ export class GrpcIndexer {
     }
 
     let fromSlot: number | undefined = this.config.fromSlot;
+    console.log(
+      `[GrpcIndexer] requested fromSlot=${fromSlot ?? "latest"} cursorKey=${
+        this.config.cursorKey ?? this.cursorKey
+      }`,
+    );
 
     if (!this.db) {
       throw new Error("Database not initialized. Provide databaseUrl when using the gRPC indexer.");
     }
 
+    let subscriberName = this.config.subscriberName;
+    if (this.config.resetOnStart && this.config.sourceKind === 'fumarole') {
+      const timestamp = Date.now();
+      subscriberName = `${subscriberName}-reset-${timestamp}`;
+      console.log(
+        `[GrpcIndexer] resetOnStart=true with Fumarole -> using new subscriber name: ${subscriberName}`,
+      );
+    }
+
     if (this.cursorStore) {
       await this.cursorStore.connect();
       await this.cursorStore.init();
+      
+      if (this.config.resetOnStart) {
+        await this.cursorStore.deleteCursor(this.cursorKey);
+      }
+      
       const existingCursor = await this.cursorStore.getCursor(this.cursorKey);
       if (existingCursor && existingCursor.last_slot > 0) {
         fromSlot = existingCursor.last_slot + 1;
       }
     }
 
-    const nativeConfig = this.buildConfig();
+    const nativeConfig = this.buildConfig(fromSlot, subscriberName);
+    if (fromSlot !== undefined) {
+      console.log(`[GrpcIndexer] passing fromSlot=${fromSlot} to native config`);
+    }
 
     if (this.eventHandlers.size > 0) {
       this.nativeIndexer.onEvent(async (err: string, payload: any) => {
@@ -246,7 +271,7 @@ export class GrpcIndexer {
     console.log('🚀 Rust indexer started with gRPC streaming');
   }
 
-  private buildConfig() {
+  private buildConfig(fromSlot?: number, subscriberName?: string) {
     const eventSubscriptions = Array.from(this.eventHandlers.values()).map(handler => {
       const subscription: Record<string, unknown> = {
         id: handler.id,
@@ -273,7 +298,7 @@ export class GrpcIndexer {
 
     const source: Record<string, unknown> = {
       'endpoint': this.config.grpcEndpoint,
-      'subscriber-name': this.config.subscriberName || 'solder-indexer',
+      'subscriber-name': subscriberName || this.config.subscriberName,
     };
 
     if (this.config.xToken) {
@@ -283,8 +308,15 @@ export class GrpcIndexer {
     if (this.config.commitmentLevel) {
       source['commitment-level'] = this.config.commitmentLevel;
     }
+    if (this.config.timeout) {
+      source['timeout'] = this.config.timeout;
+    }
+    if (fromSlot !== undefined) {
+      source['from-slot'] = fromSlot;
+    }
 
     return {
+      'source-kind': this.config.sourceKind ?? 'grpc',
       source,
       buffer: {
         'sources-channel-size': 100,
@@ -320,8 +352,8 @@ export class GrpcIndexer {
       params: parsed.params,
       timestamp: new Date().toISOString(),
       transaction: {
-        hash: event.signature || '',
-        slot: event.slot || 0,
+        hash: event.signature,
+        slot: event.slot,
         blockTime: 0,
       },
       programId: event.program,
@@ -342,17 +374,17 @@ export class GrpcIndexer {
 
     // Transform transaction to match expected format
     const transactionData = {
-      hash: transaction.signature || '',
-      slot: transaction.slot || 0,
-      blockTime: null,
-      blockHash: '',
+      hash: transaction.signature,
+      slot: transaction.slot,
+      blockTime: transaction.block_time,
+      blockHash: transaction.block_hash,
       data: {
-        block_number: transaction.slot || 0,
-        block_hash: '',
-        block_ts: null,
-        txn_hash: transaction.signature || '',
-        instructions: transaction.parsed_instructions || [],
-        events: transaction.parsed_events || [],
+        block_number: transaction.slot,
+        block_hash: transaction.block_hash,
+        block_ts: transaction.block_time,
+        txn_hash: transaction.signature,
+        instructions: transaction.parsed_instructions,
+        events: transaction.parsed_events,
       },
     };
 
