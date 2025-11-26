@@ -38,3 +38,4 @@ yarn-error.log*
 *.pem
 packages/core/index.node
 packages/core/target/*
+memory-bank
