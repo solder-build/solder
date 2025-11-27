@@ -1,6 +1,6 @@
 import { ParsedTransaction } from "@solana/web3.js";
 import { createSolanaRpc } from "@solana/rpc";
-import { fromLegacyPublicKey } from "@solana/compat";
+import { Idl } from "@coral-xyz/anchor";
 import { DecodedEvent, decodeEvent, decodeInstruction } from "../idl/idl";
 import { collectWith, fetchParsedBlock, isParsedInstruction, isPartiallyDecodedInstruction } from "../utils/block";
 
@@ -89,10 +89,7 @@ export class RpcClient {
 
   async getBlockWithInstructions(
     slot: number,
-    filter?: { 
-      programIds: string[];
-      programIdls?: Map<string, any>;
-    }
+    filter: { programIds: string[], programIdls: Map<string, Idl> },
   ): Promise<{
     block_number: number;
     block_hash: string;
@@ -124,12 +121,12 @@ export class RpcClient {
       const instructions = hasMessage(txn.transaction)
         ? collectWith<InstructionInfo>(
             { transaction: txn.transaction, meta: txn.meta! },
-            filter ?? { programIds: [] },
+            filter,
             ({ index, programId, instr }) => {
               if (isParsedInstruction(instr)) {
                 return { index, programId, parsed: instr.parsed };
               }
-              if (isPartiallyDecodedInstruction(instr) && filter?.programIdls) {
+              if (isPartiallyDecodedInstruction(instr)) {
                 // Use program-specific IDL if provided
                 const programIdl = filter.programIdls?.get(programId);
                 const decoded = decodeInstruction(instr.data, programId, programIdl);
@@ -163,10 +160,7 @@ export class RpcClient {
 
   async getBlockWithEvents(
     slot: number,
-    filter: { 
-      programIds: string[];
-      programIdls?: Map<string, any>;
-    }
+    filter: { programIds: string[], programIdls: Map<string, Idl> },
   ): Promise<{
     block_number: number;
     block_hash: string;
@@ -201,7 +195,7 @@ export class RpcClient {
             filter,
             ({ index, programId, instr }) => {
               if (isPartiallyDecodedInstruction(instr)) {
-                const programIdl = filter.programIdls?.get(programId);
+                const programIdl = filter.programIdls.get(programId);
                 const decoded = decodeEvent(instr.data, programId, programIdl);
                 return decoded ? { index, programId, event: decoded } : null;
               }

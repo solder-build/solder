@@ -91,7 +91,7 @@ export function collectWith<T>(
 ): T[] {
   const results: T[] = [];
   forEachInstruction(txn, ({ index, programId, instr }) => {
-    if (filter.programIds.length > 0 && !filter.programIds.includes(programId)) return;
+    if (!filter.programIds.includes(programId)) return;
     const mapped = mapper({ index, programId, instr });
     if (mapped !== null) results.push(mapped);
   });

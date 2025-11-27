@@ -1,0 +1,35 @@
+[package]
+name = "solder"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "solder"
+path = "src/main.rs"
+
+[lib]
+name = "solder"
+path = "src/lib.rs"
+
+[dependencies]
+yellowstone-vixen = { workspace = true }
+yellowstone-vixen-yellowstone-fumarole-source = "0.3.1"
+yellowstone-vixen-core = { workspace = true }
+yellowstone-grpc-proto = "9.1.0"
+clap = { version = "4.5", features = ["derive"] }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+bs58 = "0.5"
+base64 = { workspace = true }
+solana-pubkey = { workspace = true }
+sha2 = "0.10"
+borsh = "1.5"
+anchor-lang-idl-spec = "0.1"
+anchor-lang-idl = { version = "0.1.1", features = ["convert"] }
+anchor-syn = { version = "0.31", features = ["idl-build", "hash"] }
+heck = "0.5"
