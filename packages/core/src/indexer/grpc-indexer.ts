@@ -195,7 +195,7 @@ export class GrpcIndexer {
       }
     }
 
-    const nativeConfig = this.buildConfig();
+    const nativeConfig = this.buildConfig(fromSlot);
 
     if (this.eventHandlers.size > 0) {
       this.nativeIndexer.onEvent(async (err: string, payload: any) => {
@@ -253,7 +253,7 @@ export class GrpcIndexer {
     console.log('🚀 Rust indexer started with gRPC streaming');
   }
 
-  private buildConfig() {
+  private buildConfig(fromSlot?: number) {
     const eventSubscriptions = Array.from(this.eventHandlers.values()).map(handler => {
       const subscription: Record<string, unknown> = {
         id: handler.id,
@@ -289,6 +289,10 @@ export class GrpcIndexer {
 
     if (this.config.commitmentLevel) {
       source['commitment-level'] = this.config.commitmentLevel;
+    }
+
+    if (fromSlot !== undefined) {
+      source['from-slot'] = fromSlot;
     }
 
     return {

@@ -46,19 +46,13 @@ async function main() {
   }
 
   const config: GrpcIndexerConfig = {
-    mode: 'grpc',
     databaseUrl,
     grpcEndpoint,
     xToken,
     subscriberName: 'solder-grpc-example',
     cursorKey: 'grpc-indexer-example',
+    fromSlot: 383020000
   };
-
-  console.log("📝 Creating gRPC indexer with configuration:");
-  console.log(`  - Mode: ${config.mode}`);
-  console.log(`  - Endpoint: ${config.grpcEndpoint}`);
-  console.log(`  - Commitment: ${config.commitmentLevel}`);
-  console.log(`  - Database: ${databaseUrl ? 'Enabled' : 'Disabled'}`);
 
   const indexer = new GrpcIndexer(config);
 
