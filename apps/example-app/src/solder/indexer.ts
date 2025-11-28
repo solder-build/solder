@@ -41,7 +41,7 @@ const INDEXER_CONFIG: Partial<IndexerConfig> = {
   databaseUrl:
     process.env.DATABASE_URL, // 🔧 MODIFY: Use your actual database URL
   cursorKey: "my-indexer", // 🔧 MODIFY: Use a unique identifier for your indexer
-  enableUIProgress: false, // 🔧 MODIFY: Set to false to disable progress UI
+  enableUIProgress: false, // 🔧 MODIFY: Set to true to enable progress UI, false to disable
 };
 
 /**
@@ -84,7 +84,7 @@ const getLatestBlockHeight = async (): Promise<number> => {
 export const initializeIndexer = async () => {
 
   // fetch latest block height as default
-  if(INDEXER_CONFIG.startBlock === undefined) {
+  if (INDEXER_CONFIG.startBlock === undefined) {
     INDEXER_CONFIG.startBlock = await getLatestBlockHeight();
   }
 
@@ -100,13 +100,14 @@ export const initializeIndexer = async () => {
       event: IndexerEvent<typeof pumpFunIdl, "TradeEvent">, // 🔧 MODIFY: Update this type to match your event structure
       db,
     ) => {
+
       // 🔧 MODIFY: Replace this database insertion with your custom logic
       await db.insert(tradesTable).values({ // 🔧 MODIFY: Replace tradesTable with your table
-        mint: event.params.mint,
+        mint: event.params.mint.toString(),
         solAmount: event.params.sol_amount.toString(),
         tokenAmount: event.params.token_amount.toString(),
         isBuy: event.params.is_buy,
-        user: event.params.user,
+        user: event.params.user.toString(),
         virtualSolReserves: event.params.virtual_sol_reserves.toString(),
         virtualTokenReserves: event.params.virtual_token_reserves.toString(),
         timestamp: new Date(Number(event.params.timestamp) * 1000),
@@ -114,18 +115,19 @@ export const initializeIndexer = async () => {
     },
   });
 
-  await indexer.onTransactions({
-    filterByProgramIds: ["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"],
-    filterByInstructions: ["transferChecked"],
-    handler: async (transaction: IndexerTransaction) => {
-      console.log(
-        "Transaction parsed:",
-        JSON.stringify(transaction, (key, value) =>
-          typeof value === "bigint" ? value.toString() : value,
-        2)
-      );
-    },
-  });
+  // TODO: uncomment to demonstrate transaction indexing
+  // await indexer.onTransaction({
+  //   filterByProgramIds: ["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"],
+  //   filterByInstructions: ["transferChecked"],
+  //   handler: async (transaction: IndexerTransaction) => {
+  //     console.log(
+  //       "Transaction parsed:",
+  //       JSON.stringify(transaction, (key, value) =>
+  //         typeof value === "bigint" ? value.toString() : value,
+  //       2)
+  //     );
+  //   },
+  // });
 
 
   /// start the indexer

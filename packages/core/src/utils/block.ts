@@ -40,9 +40,9 @@ export async function fetchParsedBlock(
     encoding: "jsonParsed",
     maxSupportedTransactionVersion: 0,
   }).send();
-  
+
   if (!response) return { block: null, blockHash: null, blockTime: null };
-  
+
   return {
     block: response as unknown as ParsedBlockResponse | ParsedAccountsModeBlockResponse,
     blockHash: response.blockhash,
@@ -73,8 +73,8 @@ export function forEachInstruction(
     const instr = all[i];
     if (!instr) continue;
     // Convert legacy PublicKey to string for compatibility
-    const programId = typeof instr.programId === 'string' 
-      ? instr.programId 
+    const programId = typeof instr.programId === 'string'
+      ? instr.programId
       : fromLegacyPublicKey(instr.programId);
     fn({ index: i + 1, programId, instr });
   }
@@ -91,7 +91,7 @@ export function collectWith<T>(
 ): T[] {
   const results: T[] = [];
   forEachInstruction(txn, ({ index, programId, instr }) => {
-    if (!filter.programIds.includes(programId)) return;
+    if (filter.programIds.length > 0 && !filter.programIds.includes(programId)) return;
     const mapped = mapper({ index, programId, instr });
     if (mapped !== null) results.push(mapped);
   });
