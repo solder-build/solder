@@ -19,6 +19,7 @@
 import { Indexer, RpcClient, type ExtractEventNames, type IndexerConfig, type IndexerEvent } from "@solder-build/core";
 import { tradesTable } from "../../solder.schema.js"; // 🔧 MODIFY: Import your custom table schema
 import { pumpFunIdl } from "../idls/pump-fun.js";
+import type { IndexerTransaction } from "@solder-build/core/dist/indexer/indexer.js";
 
 
 /**
@@ -101,14 +102,14 @@ export const initializeIndexer = async () => {
     ) => {
       // 🔧 MODIFY: Replace this database insertion with your custom logic
       await db.insert(tradesTable).values({ // 🔧 MODIFY: Replace tradesTable with your table
-        mint: event.parsed.mint,
-        solAmount: event.parsed.sol_amount.toString(),
-        tokenAmount: event.parsed.token_amount.toString(),
-        isBuy: event.parsed.is_buy,
-        user: event.parsed.user,
-        virtualSolReserves: event.parsed.virtual_sol_reserves.toString(),
-        virtualTokenReserves: event.parsed.virtual_token_reserves.toString(),
-        timestamp: new Date(Number(event.parsed.timestamp) * 1000),
+        mint: event.params.mint,
+        solAmount: event.params.sol_amount.toString(),
+        tokenAmount: event.params.token_amount.toString(),
+        isBuy: event.params.is_buy,
+        user: event.params.user,
+        virtualSolReserves: event.params.virtual_sol_reserves.toString(),
+        virtualTokenReserves: event.params.virtual_token_reserves.toString(),
+        timestamp: new Date(Number(event.params.timestamp) * 1000),
       });
     },
   });
@@ -116,7 +117,7 @@ export const initializeIndexer = async () => {
   await indexer.onTransactions({
     filterByProgramIds: ["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"],
     filterByInstructions: ["transferChecked"],
-    handler: async (transaction) => {
+    handler: async (transaction: IndexerTransaction) => {
       console.log(
         "Transaction parsed:",
         JSON.stringify(transaction, (key, value) =>
