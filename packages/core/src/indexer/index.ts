@@ -15,3 +15,10 @@ export {
   type OnTransactionConfig,
   type GrpcTransaction,
 } from "./grpc-indexer";
+
+export {
+  createGrpcIndexer,
+  createIndexer,
+  type UnifiedIndexerConfig,
+  createRpcIndexer,
+} from "./factory";

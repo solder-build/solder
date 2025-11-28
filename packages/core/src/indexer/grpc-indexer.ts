@@ -40,7 +40,6 @@ try {
 }
 
 export interface GrpcIndexerConfig {
-  mode: 'grpc';
   databaseUrl: string;
   grpcEndpoint: string;
   xToken?: string;
