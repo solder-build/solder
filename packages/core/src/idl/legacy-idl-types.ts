@@ -1,12 +1,6 @@
 import type { PrimitiveConfig, FieldsToObject } from "./idl-types";
 
-type DefaultPrimitives = PrimitiveConfig<
-  import("@solana/web3.js").PublicKey,
-  bigint,
-  string,
-  boolean,
-  string
->;
+type DefaultPrimitives = PrimitiveConfig;
 
 // Legacy IDL shape definitions
 export type LegacyIdlField = { name: string; type: any };

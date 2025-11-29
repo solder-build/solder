@@ -14,7 +14,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "index.node"
   ],
   "keywords": [
     "solana",
@@ -32,7 +33,10 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "tsc --watch --outDir dist --project ./",
-    "build": "tsc --outDir dist --project ./"
+    "build": "pnpm build:ts && pnpm build:native",
+    "build:ts": "tsc --outDir dist --project ./",
+    "build:native": "cargo build --release -p solder-node --manifest-path ./src/indexer/native-stream/Cargo.toml && node scripts/copy-node-addon.js",
+    "build:native:dev": "cargo build -p solder-node --manifest-path ./src/indexer/native-stream/Cargo.toml && node scripts/copy-node-addon.js"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.31.1",

@@ -1,0 +1,21 @@
+[package]
+name = "solder-node"
+version = "0.1.0"
+edition = "2021"
+authors = ["q3x"]
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = "1.0"
+serde = { workspace = true }
+serde_json = "1.0"
+tokio = { version = "1.48", features = ["rt-multi-thread", "macros"] }
+solder = { path = "../stream-core" }
+napi = { version = "2", default-features = false, features = ["napi4", "serde-json"] }
+napi-derive = "2"
+
+[build-dependencies]
+napi-build = "2.2"

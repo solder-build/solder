@@ -683,3 +683,75 @@ pnpm create-app
 Follow us on [X/Twitter](https://x.com/solder_official) • Check out [legends.fun](https://www.legends.fun/products/3fcaabac-2fe8-402b-a1fd-53833b66dfad)
 
 </div>
+
+## gRPC Rust Indexer example (Yellowstone)
+
+This repo includes a high-performance gRPC indexer implemented with a Rust native addon and Yellowstone Vixen streaming.
+
+### Prerequisites
+
+- Node.js 18+ and pnpm
+- Rust toolchain + Cargo
+- PostgreSQL (local or Docker)
+- Yellowstone Fumarole gRPC endpoint and X-Token
+
+### 1) Install dependencies
+
+```bash
+pnpm install
+```
+
+### 2) Build the native addon and TypeScript
+
+From the repo root:
+
+```bash
+pnpm --filter @solder-build/core build:native
+pnpm --filter @solder-build/core build:ts
+# Or one shot:
+pnpm --filter @solder-build/core build
+```
+
+### 3) Start Postgres (example via Docker)
+
+```bash
+docker run --name solder-pg \
+  -e POSTGRES_PASSWORD=password123 \
+  -e POSTGRES_DB=app \
+  -p 6500:5432 \
+  -d postgres:16
+```
+
+Set your connection string:
+
+```bash
+export DATABASE_URL="postgresql://postgres:password123@127.0.0.1:6500/app"
+```
+
+### 4) Set Yellowstone gRPC credentials
+
+```bash
+export GRPC_ENDPOINT="https://your-fumarole-endpoint.com"
+export GRPC_TOKEN="your-x-token"
+```
+
+Note: The example at `packages/core/src/examples/grpc-indexer.ts` currently hardcodes values for `grpcEndpoint`, `xToken`, and `databaseUrl`. For production usage, change those to read from `process.env.*` or supply your values before building.
+
+### 5) Run the example
+
+```bash
+node packages/core/dist/examples/grpc-indexer.js
+```
+
+You should see:
+- Event handler registration
+- Monitored programs and handler counts
+- Streaming logs as events arrive
+
+Stop with Ctrl+C; graceful shutdown is handled.
+
+### Troubleshooting
+
+- Missing `index.node`: rerun the native build step (`build:native`).
+- DB connection errors: verify `DATABASE_URL` matches your Postgres host/port.
+- Auth errors: confirm `GRPC_TOKEN` is valid and paired with the same endpoint.

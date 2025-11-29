@@ -168,7 +168,7 @@ jobs:
         run: |
           git add packages/core/package.json packages/create-solder/package.json packages/solder-cli/package.json
           git commit -m "chore: bump versions to ${{ steps.bump_core.outputs.new_version }} [${{ steps.version_type.outputs.bump_type }}] [skip ci]" || echo "No changes to commit"
-          git push
+          git push origin main --follow-tags
 
       - name: Get current versions (for no bump mode)
         id: current_versions
