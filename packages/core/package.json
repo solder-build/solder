@@ -1,6 +1,6 @@
 {
   "name": "@solder-build/core",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "description": "A modern Solana indexer framework with built-in database support and auto-generated APIs",
   "license": "ISC",
   "author": "",
