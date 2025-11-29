@@ -40,9 +40,9 @@ export async function fetchParsedBlock(
     encoding: "jsonParsed",
     maxSupportedTransactionVersion: 0,
   }).send();
-  
+
   if (!response) return { block: null, blockHash: null, blockTime: null };
-  
+
   return {
     block: response as unknown as ParsedBlockResponse | ParsedAccountsModeBlockResponse,
     blockHash: response.blockhash,
@@ -73,8 +73,8 @@ export function forEachInstruction(
     const instr = all[i];
     if (!instr) continue;
     // Convert legacy PublicKey to string for compatibility
-    const programId = typeof instr.programId === 'string' 
-      ? instr.programId 
+    const programId = typeof instr.programId === 'string'
+      ? instr.programId
       : fromLegacyPublicKey(instr.programId);
     fn({ index: i + 1, programId, instr });
   }

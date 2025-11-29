@@ -1,12 +1,11 @@
 import { RpcClient } from "../rpc/rpc";
-import { EventType, IdlEvent } from "../idl/idl-types";
+import { AnchorIdl, EventType, IdlEvent } from "../idl/idl-types";
 import { LegacyEventType, LegacyIdl } from "../idl/legacy-idl-types";
 import { isLegacyIdl } from "../idl/idl";
 import { CursorStore } from "./db";
 import { drizzle, NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { Idl } from "@coral-xyz/anchor";
-import { fetchParsedBlock, forEachInstruction } from "../utils/block";
 
 export interface IndexerConfig {
   startBlock: number;
@@ -24,7 +23,7 @@ export interface RegisteredProgram {
 }
 
 export interface EventHandler<
-  TIdl extends Idl | LegacyIdl = Idl,
+  TIdl extends AnchorIdl = AnchorIdl,
   TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
 > {
   id: string;
@@ -38,7 +37,7 @@ export interface EventHandler<
 }
 
 export interface OnEventConfig<
-  TIdl extends Idl | LegacyIdl = Idl,
+  TIdl extends AnchorIdl = AnchorIdl,
   TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
 > {
   programId: string;
@@ -91,44 +90,49 @@ export interface OnTransactionConfig {
 }
 
 // Type to extract event names from IDL (supports both legacy and current formats)
-export type ExtractEventNames<TIdl extends Idl | LegacyIdl> = 
+export type ExtractEventNames<TIdl extends AnchorIdl> =
   [TIdl] extends [LegacyIdl]
-    ? TIdl extends { events?: readonly { name: infer TName }[] }
-      ? TName extends string
-        ? TName
-        : never
-      : never
-    : TIdl extends { events?: readonly { name: infer TName }[] }
-      ? TName extends string
-        ? TName
-        : never
-      : never;
+  ? TIdl extends { events?: readonly { name: infer TName }[] }
+  ? TName extends string
+  ? TName
+  : never
+  : never
+  : TIdl extends { events?: readonly { name: infer TName }[] }
+  ? TName extends string
+  ? TName
+  : never
+  : never;
 
 // Type to get event data from IDL
 export type ExtractEventData<
-  TIdl extends Idl,
+  TIdl extends AnchorIdl,
   TEventName extends ExtractEventNames<TIdl>,
 > = TIdl extends { events: infer TEvents }
   ? TEvents extends readonly any[]
-    ? TEvents[number] extends { name: TEventName; fields: infer TFields }
-      ? TFields
-      : never
-    : never
+  ? TEvents[number] extends { name: TEventName; fields: infer TFields }
+  ? TFields
+  : never
+  : never
+  : never;
+
+type EventPayload<
+  TIdl extends AnchorIdl,
+  TEventName extends ExtractEventNames<TIdl>
+> = TIdl extends LegacyIdl
+  ? LegacyEventType<TIdl, TEventName & string>
+  : TIdl extends AnchorIdl
+  ? EventType<TIdl, TEventName>
   : never;
 
 // Type for the complete event object passed to handlers (supports both legacy and current IDL)
 export interface IndexerEvent<
-  TIdl extends Idl | LegacyIdl = Idl,
+  TIdl extends AnchorIdl = AnchorIdl,
   TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
 > {
   name: string;
   contract: string;
   type: string;
-  parsed: TIdl extends Idl
-    ? EventType<TIdl, TEventName>
-    : TIdl extends LegacyIdl 
-      ? LegacyEventType<TIdl, TEventName>
-      : never;
+  params: EventPayload<TIdl, TEventName>;
   timestamp: string;
   transaction: {
     hash: string;
@@ -207,7 +211,7 @@ export class Indexer {
 
     // Check if it's a legacy IDL format
     const isLegacy = isLegacyIdl(idl);
-    
+
     if (isLegacy) {
       // Legacy IDL validation
       if (!idl.events || !Array.isArray(idl.events)) {
@@ -253,7 +257,7 @@ export class Indexer {
    * @returns A function to remove the event handler
    */
   public async onEvent<
-    TIdl extends Idl | LegacyIdl,
+    TIdl extends AnchorIdl,
     TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
   >(config: OnEventConfig<TIdl, TEventName>): Promise<() => void> {
     const handlerId = `${config.programId}-${config.eventName}-${Date.now()}`;
@@ -308,16 +312,16 @@ export class Indexer {
    * @param config Configuration for the transaction handler
    * @returns A function to remove the transaction handler
    */
-  public async onTransactions(
+  public async onTransaction(
     config: OnTransactionConfig,
   ): Promise<() => void> {
     let handlerId = `transaction-${Date.now()}`;
 
-    if(config.filterByInstructions) {
+    if (config.filterByInstructions) {
       handlerId += `-${config.filterByInstructions.sort().join("-")}`;
     }
 
-    if(config.filterByProgramIds) {
+    if (config.filterByProgramIds) {
       handlerId += `-${config.filterByProgramIds.sort().join("-")}`;
     }
 
@@ -370,18 +374,18 @@ export class Indexer {
     }
 
     this.isRunning = true;
-    
+
     // Initialize progress state
     this.progressState.startSlot = this.currentSlot;
     this.progressState.startTime = Date.now();
     this.progressState.latestSlot = Number(await this.rpcClient.getSlot());
-    
+
     // Setup UI if enabled
     if (this.enableUIProgress) {
       const { setupProgressUi } = await import('../ui/progress.js');
       this.uiShutdown = setupProgressUi(() => this.getProgressUiState());
     }
-    
+
     // Initialize cursor store if available
     if (this.cursorStore) {
       await this.cursorStore.connect();
@@ -400,6 +404,7 @@ export class Indexer {
       );
     }
 
+
     try {
       await this.processBlocks();
     } catch (error) {
@@ -414,16 +419,16 @@ export class Indexer {
    */
   stop(): void {
     this.isRunning = false;
-    
+
     // Shutdown UI if it was enabled
     if (this.uiShutdown) {
       this.uiShutdown();
       this.uiShutdown = undefined;
     }
-    
+
     console.log("Indexer stopped");
     if (this.cursorStore) {
-      this.cursorStore.close().catch(() => {});
+      this.cursorStore.close().catch(() => { });
     }
   }
 
@@ -451,15 +456,15 @@ export class Indexer {
   }
 
   /**
-   * Process a single block for registered programs and events
-   */
+ * Process a single block for registered programs and events
+ */
   private async processBlock(slot: number): Promise<void> {
     // Track request for RPS calculation
     this.progressState.requestTimestamps.push(Date.now());
     if (this.progressState.requestTimestamps.length > 100) {
       this.progressState.requestTimestamps.shift(); // keep last 100
     }
-    
+
     const programIds = this.getRegisteredProgramIds();
 
     const hasTransactionHandlers = this.transactionHandlers.size > 0;
@@ -486,7 +491,7 @@ export class Indexer {
           for (const eventInfo of transaction.events) {
             const startTime = performance.now();
             await this.handleEvent(eventInfo, transaction);
-            
+
             // Track event stats
             const duration = performance.now() - startTime;
             const key = `${eventInfo.programId}-${eventInfo.event.name}`;
@@ -505,7 +510,7 @@ export class Indexer {
         }
       }
 
-      
+
       if (hasTransactionHandlers) {
         const blockDataForTransactions = await this.rpcClient.getBlockWithInstructions(slot);
         if (blockDataForTransactions) {
@@ -590,7 +595,7 @@ export class Indexer {
         if (handler.filterByInstructions && handler.filterByInstructions.length > 0) {
           // Check if any instruction.programId matches any of filterByInstructions
           const instructionNames = instructions.map(instr => (instr.data as { type: string }).type);
-          const hasIntersection = handler.filterByInstructions.some(filterInstructionName => 
+          const hasIntersection = handler.filterByInstructions.some(filterInstructionName =>
             instructionNames.includes(filterInstructionName)
           );
           if (!hasIntersection) {
@@ -601,7 +606,7 @@ export class Indexer {
         if (handler.filterByProgramIds && handler.filterByProgramIds.length > 0) {
           // Check if any instruction.programId matches any of filterByProgramIds
           const instructionProgramIds = instructions.map(instr => instr.programId);
-          const hasIntersection = handler.filterByProgramIds.some(filterProgramId => 
+          const hasIntersection = handler.filterByProgramIds.some(filterProgramId =>
             instructionProgramIds.includes(filterProgramId)
           );
           if (!hasIntersection) {
@@ -626,6 +631,7 @@ export class Indexer {
     eventInfo: { index: number; programId: string; event: any },
     transaction: any,
   ): Promise<void> {
+
     const { programId, event } = eventInfo;
     const registeredProgram = this.registeredPrograms.get(programId);
 
@@ -666,15 +672,22 @@ export class Indexer {
     for (const handler of relevantHandlers) {
       try {
         // Create event object with additional context
-        const eventData = {
+        const eventData: IndexerEvent<AnchorIdl, string> = {
           ...parsedEvent,
           programId,
           eventName,
+          timestamp: transaction.block_ts ? new Date(transaction.block_ts * 1000).toISOString() : new Date().toISOString(),
+          transaction: {
+            hash: transaction.block_hash,
+            slot: transaction.block_number,
+            blockTime: transaction.block_ts,
+          },
         };
+
         if (!this.db) {
           throw new Error("Database not initialized");
         }
-        await handler.handler(eventData, this.db);
+        await handler.handler(eventData as any, this.db);
       } catch (error) {
         console.error(
           `Error in event handler for ${eventName} on ${programId}:`,
@@ -688,14 +701,14 @@ export class Indexer {
    * Parse event data using the provided IDL for better type safety
    * Supports both legacy and current IDL formats
    */
-  private parseEventWithIdl(event: any, idl: Idl | LegacyIdl): any {
+  private parseEventWithIdl(event: any, idl: Idl | LegacyIdl): Partial<IndexerEvent> {
     try {
       // Find the event definition in the IDL
       if (!idl.events) {
         console.warn(`No events defined in IDL`);
-        return event.parsed;
+        return event;
       }
-      
+
       const eventDefinition = idl.events.find(
         (e: any) => e.name === event.name,
       );
@@ -704,12 +717,13 @@ export class Indexer {
         return event.parsed;
       }
 
+
       // Return the parsed event with IDL context
       return {
         name: event.name,
         contract: event.contract,
         type: event.type,
-        parsed: event.parsed,
+        params: event.parsed,
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
@@ -726,14 +740,12 @@ export class Indexer {
     currentSlot: number;
     registeredPrograms: number;
     eventHandlers: number;
-    transactionHandlers: number;
   } {
     return {
       isRunning: this.isRunning,
       currentSlot: this.currentSlot,
       registeredPrograms: this.registeredPrograms.size,
       eventHandlers: this.eventHandlers.size,
-      transactionHandlers: this.transactionHandlers.size,
     };
   }
 
@@ -742,7 +754,7 @@ export class Indexer {
     const rps = this.calculateRPS(now);
     const progress = this.calculateProgress();
     const eta = this.calculateETA(rps, progress);
-    
+
     return {
       chain: 'Solana',
       status: this.isRunning ? 'Running' : 'Stopped',
@@ -776,7 +788,7 @@ export class Indexer {
     if (this.progressState.latestSlot === 0) return 0;
     const total = this.progressState.latestSlot - this.progressState.startSlot;
     const current = this.currentSlot - this.progressState.startSlot;
-    
+
     // If we're doing historical sync and have processed a reasonable amount,
     // show some progress even if it's very small
     if (total > 1000000 && current > 100) {
@@ -785,7 +797,7 @@ export class Indexer {
       const estimatedTotalTime = timeElapsed * (total / current);
       return Math.min(0.99, timeElapsed / estimatedTotalTime);
     }
-    
+
     return Math.min(1, current / total);
   }
 
@@ -795,4 +807,3 @@ export class Indexer {
     return remaining / rps;
   }
 }
-

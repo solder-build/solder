@@ -7,7 +7,18 @@ export {
   type ExtractEventNames,
   type ExtractEventData,
   type IndexerEvent,
-  type IndexerTransaction,
-  type TransactionHandler,
-  type OnTransactionConfig,
 } from "./indexer";
+
+export {
+  GrpcIndexer,
+  type GrpcIndexerConfig,
+  type OnTransactionConfig,
+  type GrpcTransaction,
+} from "./grpc-indexer";
+
+export {
+  createGrpcIndexer,
+  createIndexer,
+  type UnifiedIndexerConfig,
+  createRpcIndexer,
+} from "./factory";

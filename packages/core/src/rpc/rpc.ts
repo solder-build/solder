@@ -42,7 +42,7 @@ export class RpcClient {
       commitment = "confirmed",
       httpHeaders,
     } = options;
-    
+
     let url: string;
     if (endpoint) {
       url = endpoint;
@@ -62,7 +62,7 @@ export class RpcClient {
           url = "https://api.devnet.solana.com";
       }
     }
-    
+
     this.rpc = createSolanaRpc(url);
   }
 
@@ -89,7 +89,7 @@ export class RpcClient {
 
   async getBlockWithInstructions(
     slot: number,
-    filter?: { 
+    filter?: {
       programIds: string[];
       programIdls?: Map<string, any>;
     }
@@ -123,21 +123,21 @@ export class RpcClient {
       const signature = signatures[0];
       const instructions = hasMessage(txn.transaction)
         ? collectWith<InstructionInfo>(
-            { transaction: txn.transaction, meta: txn.meta! },
-            filter ?? { programIds: [] },
-            ({ index, programId, instr }) => {
-              if (isParsedInstruction(instr)) {
-                return { index, programId, parsed: instr.parsed };
-              }
-              if (isPartiallyDecodedInstruction(instr) && filter?.programIdls) {
-                // Use program-specific IDL if provided
-                const programIdl = filter.programIdls?.get(programId);
-                const decoded = decodeInstruction(instr.data, programId, programIdl);
-                return decoded == null ? null : { index, programId, parsed: decoded };
-              }
-              return null;
-            },
-          )
+          { transaction: txn.transaction, meta: txn.meta! },
+          filter ?? { programIds: [] },
+          ({ index, programId, instr }) => {
+            if (isParsedInstruction(instr)) {
+              return { index, programId, parsed: instr.parsed };
+            }
+            if (isPartiallyDecodedInstruction(instr) && filter?.programIdls) {
+              // Use program-specific IDL if provided
+              const programIdl = filter.programIdls?.get(programId);
+              const decoded = decodeInstruction(instr.data, programId, programIdl);
+              return decoded == null ? null : { index, programId, parsed: decoded };
+            }
+            return null;
+          },
+        )
         : [];
 
       if (!instructions.length) {
@@ -163,7 +163,7 @@ export class RpcClient {
 
   async getBlockWithEvents(
     slot: number,
-    filter: { 
+    filter: {
       programIds: string[];
       programIdls?: Map<string, any>;
     }
@@ -197,17 +197,17 @@ export class RpcClient {
       const signature = signatures[0];
       const events = hasMessage(txn.transaction)
         ? collectWith<EventInfo>(
-            { transaction: txn.transaction, meta: txn.meta! },
-            filter,
-            ({ index, programId, instr }) => {
-              if (isPartiallyDecodedInstruction(instr)) {
-                const programIdl = filter.programIdls?.get(programId);
-                const decoded = decodeEvent(instr.data, programId, programIdl);
-                return decoded ? { index, programId, event: decoded } : null;
-              }
-              return null;
-            },
-          )
+          { transaction: txn.transaction, meta: txn.meta! },
+          filter,
+          ({ index, programId, instr }) => {
+            if (isPartiallyDecodedInstruction(instr)) {
+              const programIdl = filter.programIdls?.get(programId);
+              const decoded = decodeEvent(instr.data, programId, programIdl);
+              return decoded ? { index, programId, event: decoded } : null;
+            }
+            return null;
+          },
+        )
         : [];
 
       if (!events.length) continue;
