@@ -43,6 +43,12 @@ export interface GrpcIndexerConfig {
   databaseUrl: string;
   grpcEndpoint: string;
   xToken?: string;
+  /**
+   * Selects the Yellowstone source implementation in the Rust core.
+   * - omit / "fumarole" → Yellowstone Fumarole (default, backwards compatible)
+   * - "grpc" → regular Yellowstone gRPC (Dragonmouth/geyser)
+   */
+  sourceKind?: 'grpc' | 'fumarole';
   fromBlockNumber?: number;
   cursorKey?: string;
 }
@@ -280,16 +286,25 @@ export class GrpcIndexer {
       'endpoint': this.config.grpcEndpoint,
       'subscriber-name': this.config.cursorKey || 'solder-indexer',
     };
-
+    
     if (this.config.xToken) {
       source['x-token'] = this.config.xToken;
     }
+
+    // Keep a sane default timeout for the source so callers don't have to
+    // specify it; this matches the extended gRPC example.
+    source['timeout'] = 120;
 
     if (fromBlockNumber !== undefined) {
       source['from-slot'] = fromBlockNumber;
     }
 
     return {
+      // Only set source-kind when explicitly requested so existing
+      // configs (which talk to Fumarole) keep their behavior.
+      ...(this.config.sourceKind
+        ? { 'source-kind': this.config.sourceKind }
+        : {}),
       source,
       buffer: {
         'sources-channel-size': 100,

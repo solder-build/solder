@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use anyhow::{anyhow, bail, Context, Result};
 use anchor_lang_idl::convert::convert_idl;
-use anchor_lang_idl_spec::{Idl, IdlDefinedFields, IdlField, IdlInstruction, IdlType, IdlTypeDefTy};
+use anchor_lang_idl_spec::{
+    Idl, IdlDefinedFields, IdlField, IdlInstruction, IdlType, IdlTypeDefTy,
+};
+use anyhow::{Context, Result, anyhow, bail};
 use borsh::BorshDeserialize;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -147,13 +149,13 @@ pub struct EventDecoder {
 impl EventDecoder {
     pub fn from_idl(idl: &Idl) -> Self {
         let mut by_discriminator = HashMap::new();
-        
+
         for event in &idl.events {
             // IDL spec 0.1 includes discriminator
             if event.discriminator.len() >= 8 {
                 let mut disc = [0u8; 8];
                 disc.copy_from_slice(&event.discriminator[..8]);
-                
+
                 // Look up the type definition for the event
                 let fields = idl
                     .types
@@ -167,18 +169,21 @@ impl EventDecoder {
                         _ => None,
                     })
                     .unwrap_or_default();
-                
+
                 by_discriminator.insert(disc, (event.name.clone(), fields));
             }
         }
-        
+
         Self {
             by_discriminator,
             idl: idl.clone(),
         }
     }
 
-    pub fn decode_from_instruction_data(&self, instruction_data: &[u8]) -> Result<Vec<DecodedEvent>> {
+    pub fn decode_from_instruction_data(
+        &self,
+        instruction_data: &[u8],
+    ) -> Result<Vec<DecodedEvent>> {
         let mut events = Vec::new();
 
         if instruction_data.len() < 8 {
@@ -187,11 +192,11 @@ impl EventDecoder {
 
         let mut disc = [0u8; 8];
         disc.copy_from_slice(&instruction_data[..8]);
-        
+
         if let Some((name, fields)) = self.by_discriminator.get(&disc) {
             let event_data = &instruction_data[8..];
             let reader = IdlReader::new(&self.idl);
-            
+
             match reader.parse_fields(event_data, fields) {
                 Ok(params) => {
                     events.push(DecodedEvent {
@@ -209,11 +214,11 @@ impl EventDecoder {
         if instruction_data.len() >= 16 {
             let mut disc = [0u8; 8];
             disc.copy_from_slice(&instruction_data[8..16]);
-            
+
             if let Some((name, fields)) = self.by_discriminator.get(&disc) {
                 let event_data = &instruction_data[16..];
                 let reader = IdlReader::new(&self.idl);
-                
+
                 match reader.parse_fields(event_data, fields) {
                     Ok(params) => {
                         events.push(DecodedEvent {
@@ -246,7 +251,8 @@ impl<'a> IdlReader<'a> {
         let mut cursor = data;
 
         for field in fields {
-            let value = self.parse_value(&mut cursor, &field.ty)
+            let value = self
+                .parse_value(&mut cursor, &field.ty)
                 .with_context(|| format!("parsing field {}", field.name))?;
             result.insert(field.name.clone(), value);
         }
@@ -260,7 +266,7 @@ impl<'a> IdlReader<'a> {
                 let value: bool = BorshDeserialize::deserialize(data)?;
                 JsonValue::Bool(value)
             }
-            
+
             IdlType::U8 => {
                 let value: u8 = BorshDeserialize::deserialize(data)?;
                 JsonValue::Number(value.into())
@@ -285,7 +291,7 @@ impl<'a> IdlReader<'a> {
                 let bytes: [u8; 32] = BorshDeserialize::deserialize(data)?;
                 JsonValue::String(bs58::encode(&bytes).into_string())
             }
-            
+
             IdlType::I8 => {
                 let value: i8 = BorshDeserialize::deserialize(data)?;
                 JsonValue::Number(value.into())
@@ -310,7 +316,7 @@ impl<'a> IdlReader<'a> {
                 let bytes: [u8; 32] = BorshDeserialize::deserialize(data)?;
                 JsonValue::String(bs58::encode(&bytes).into_string())
             }
-            
+
             IdlType::F32 => {
                 let value: f32 = BorshDeserialize::deserialize(data)?;
                 serde_json::Number::from_f64(value as f64)
@@ -323,22 +329,22 @@ impl<'a> IdlReader<'a> {
                     .map(JsonValue::Number)
                     .unwrap_or(JsonValue::Null)
             }
-            
+
             IdlType::Bytes => {
                 let bytes: Vec<u8> = BorshDeserialize::deserialize(data)?;
                 JsonValue::String(bs58::encode(&bytes).into_string())
             }
-            
+
             IdlType::String => {
                 let value: String = BorshDeserialize::deserialize(data)?;
                 JsonValue::String(value)
             }
-            
+
             IdlType::Pubkey => {
                 let bytes: [u8; 32] = BorshDeserialize::deserialize(data)?;
                 JsonValue::String(bs58::encode(&bytes).into_string())
             }
-            
+
             IdlType::Option(inner_ty) => {
                 let has_value: u8 = BorshDeserialize::deserialize(data)?;
                 if has_value == 0 {
@@ -347,7 +353,7 @@ impl<'a> IdlReader<'a> {
                     self.parse_value(data, inner_ty)?
                 }
             }
-            
+
             IdlType::Vec(inner_ty) => {
                 let len: u32 = BorshDeserialize::deserialize(data)?;
                 let mut arr = Vec::with_capacity(len as usize);
@@ -356,7 +362,7 @@ impl<'a> IdlReader<'a> {
                 }
                 JsonValue::Array(arr)
             }
-            
+
             IdlType::Array(inner_ty, array_len) => {
                 let len = match array_len {
                     anchor_lang_idl_spec::IdlArrayLen::Value(v) => *v,
@@ -370,12 +376,12 @@ impl<'a> IdlReader<'a> {
                 }
                 JsonValue::Array(arr)
             }
-            
+
             IdlType::Defined { name, generics } => {
                 if !generics.is_empty() {
                     bail!("generic types not yet supported");
                 }
-                
+
                 let type_def = self
                     .idl
                     .types
@@ -384,28 +390,26 @@ impl<'a> IdlReader<'a> {
                     .ok_or_else(|| anyhow!("type not found in IDL: {}", name))?;
 
                 match &type_def.ty {
-                    IdlTypeDefTy::Struct { fields } => {
-                        match fields {
-                            Some(IdlDefinedFields::Named(fields)) => self.parse_fields(data, fields)?,
-                            Some(IdlDefinedFields::Tuple(_)) => bail!("tuple structs not yet supported"),
-                            None => JsonValue::Object(serde_json::Map::new()),
+                    IdlTypeDefTy::Struct { fields } => match fields {
+                        Some(IdlDefinedFields::Named(fields)) => self.parse_fields(data, fields)?,
+                        Some(IdlDefinedFields::Tuple(_)) => {
+                            bail!("tuple structs not yet supported")
                         }
-                    }
-                    
+                        None => JsonValue::Object(serde_json::Map::new()),
+                    },
+
                     IdlTypeDefTy::Enum { variants } => {
                         let discriminant: u8 = BorshDeserialize::deserialize(data)?;
-                        let variant = variants
-                            .get(discriminant as usize)
-                            .ok_or_else(|| anyhow!("invalid enum discriminant: {}", discriminant))?;
+                        let variant = variants.get(discriminant as usize).ok_or_else(|| {
+                            anyhow!("invalid enum discriminant: {}", discriminant)
+                        })?;
 
                         match &variant.fields {
-                            None => {
-                                JsonValue::Object({
-                                    let mut map = serde_json::Map::new();
-                                    map.insert(variant.name.clone(), JsonValue::Null);
-                                    map
-                                })
-                            }
+                            None => JsonValue::Object({
+                                let mut map = serde_json::Map::new();
+                                map.insert(variant.name.clone(), JsonValue::Null);
+                                map
+                            }),
                             Some(IdlDefinedFields::Named(fields)) => {
                                 let parsed = self.parse_fields(data, fields)?;
                                 JsonValue::Object({
@@ -427,17 +431,15 @@ impl<'a> IdlReader<'a> {
                             }
                         }
                     }
-                    
-                    IdlTypeDefTy::Type { alias } => {
-                        self.parse_value(data, alias)?
-                    }
+
+                    IdlTypeDefTy::Type { alias } => self.parse_value(data, alias)?,
                 }
             }
-            
+
             IdlType::Generic(_) => {
                 bail!("generic types not supported");
             }
-            
+
             _ => {
                 bail!("unsupported IDL type");
             }

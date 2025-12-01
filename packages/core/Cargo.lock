@@ -4006,6 +4006,7 @@ dependencies = [
  "yellowstone-vixen",
  "yellowstone-vixen-core",
  "yellowstone-vixen-yellowstone-fumarole-source",
+ "yellowstone-vixen-yellowstone-grpc-source",
 ]
 
 [[package]]
@@ -5500,6 +5501,24 @@ dependencies = [
  "tonic 0.12.3",
  "tracing",
  "yellowstone-fumarole-client",
+ "yellowstone-grpc-proto",
+ "yellowstone-vixen",
+ "yellowstone-vixen-core",
+]
+
+[[package]]
+name = "yellowstone-vixen-yellowstone-grpc-source"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2c3ce30c4c2addad95a8c63a2ed27ae6afd6c3070e96bb6e3f795777616e523"
+dependencies = [
+ "async-trait",
+ "clap",
+ "futures-util",
+ "serde",
+ "tokio",
+ "tracing",
+ "yellowstone-grpc-client",
  "yellowstone-grpc-proto",
  "yellowstone-vixen",
  "yellowstone-vixen-core",

@@ -46,10 +46,10 @@ async function main() {
   }
 
   const config: GrpcIndexerConfig = {
+    sourceKind: "grpc",
     databaseUrl,
     grpcEndpoint,
     xToken,
-    cursorKey: 'grpc-indexer-example',
   };
 
   const indexer = new GrpcIndexer(config);

@@ -2,9 +2,9 @@ use std::path::PathBuf;
 
 use anyhow::{Result, anyhow};
 use clap::{Parser as ClapParser, ValueEnum};
+use solder::{DEFAULT_CHANNEL_CAPACITY, StreamEvent, load_config, run_with_sender};
 use tokio::sync::mpsc;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
-use solder::{DEFAULT_CHANNEL_CAPACITY, StreamEvent, load_config, run_with_sender};
 
 #[derive(ClapParser, Debug)]
 #[command(
@@ -62,8 +62,8 @@ fn print_event(event: &StreamEvent, format: OutputFormat) -> Result<()> {
             match event {
                 StreamEvent::Account { event } => {
                     let (pubkey, data_len) = event
-                .account
-                .as_ref()
+                        .account
+                        .as_ref()
                         .map(|acc| (acc.pubkey.as_str(), acc.data.len()))
                         .unwrap_or(("<none>", 0));
                     println!(
@@ -82,7 +82,10 @@ fn print_event(event: &StreamEvent, format: OutputFormat) -> Result<()> {
                     );
                 }
                 StreamEvent::Event { event } => {
-                    let index_str = event.index.map(|i| format!(" index={}", i)).unwrap_or_default();
+                    let index_str = event
+                        .index
+                        .map(|i| format!(" index={}", i))
+                        .unwrap_or_default();
                     println!(
                         "[EVENT] slot={} program={} signature={} name={}{} params={}",
                         event.slot,
@@ -90,7 +93,8 @@ fn print_event(event: &StreamEvent, format: OutputFormat) -> Result<()> {
                         event.signature,
                         event.parsed.name,
                         index_str,
-                        serde_json::to_string(&event.parsed.params).unwrap_or_else(|_| "{}".to_string())
+                        serde_json::to_string(&event.parsed.params)
+                            .unwrap_or_else(|_| "{}".to_string())
                     );
                 }
                 StreamEvent::Transaction { event } => {
