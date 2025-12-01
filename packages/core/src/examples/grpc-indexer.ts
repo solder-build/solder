@@ -49,9 +49,7 @@ async function main() {
     databaseUrl,
     grpcEndpoint,
     xToken,
-    subscriberName: 'solder-grpc-example',
     cursorKey: 'grpc-indexer-example',
-    fromSlot: 383020000
   };
 
   const indexer = new GrpcIndexer(config);

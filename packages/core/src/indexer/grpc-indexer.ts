@@ -43,9 +43,7 @@ export interface GrpcIndexerConfig {
   databaseUrl: string;
   grpcEndpoint: string;
   xToken?: string;
-  subscriberName?: string;
-  commitmentLevel?: 'processed' | 'confirmed' | 'finalized';
-  fromSlot?: number;
+  fromBlockNumber?: number;
   cursorKey?: string;
 }
 
@@ -180,7 +178,7 @@ export class GrpcIndexer {
       this.setupDatabase(this.config.databaseUrl);
     }
 
-    let fromSlot: number | undefined = this.config.fromSlot;
+    let fromBlockNumber: number | undefined = this.config.fromBlockNumber;
 
     if (!this.db) {
       throw new Error("Database not initialized. Provide databaseUrl when using the gRPC indexer.");
@@ -191,11 +189,11 @@ export class GrpcIndexer {
       await this.cursorStore.init();
       const existingCursor = await this.cursorStore.getCursor(this.cursorKey);
       if (existingCursor && existingCursor.last_slot > 0) {
-        fromSlot = existingCursor.last_slot + 1;
+        fromBlockNumber = existingCursor.last_slot + 1;
       }
     }
 
-    const nativeConfig = this.buildConfig(fromSlot);
+    const nativeConfig = this.buildConfig(fromBlockNumber);
 
     if (this.eventHandlers.size > 0) {
       this.nativeIndexer.onEvent(async (err: string, payload: any) => {
@@ -253,7 +251,7 @@ export class GrpcIndexer {
     console.log('🚀 Rust indexer started with gRPC streaming');
   }
 
-  private buildConfig(fromSlot?: number) {
+  private buildConfig(fromBlockNumber?: number) {
     const eventSubscriptions = Array.from(this.eventHandlers.values()).map(handler => {
       const subscription: Record<string, unknown> = {
         id: handler.id,
@@ -280,19 +278,15 @@ export class GrpcIndexer {
 
     const source: Record<string, unknown> = {
       'endpoint': this.config.grpcEndpoint,
-      'subscriber-name': this.config.subscriberName || 'solder-indexer',
+      'subscriber-name': this.config.cursorKey || 'solder-indexer',
     };
 
     if (this.config.xToken) {
       source['x-token'] = this.config.xToken;
     }
 
-    if (this.config.commitmentLevel) {
-      source['commitment-level'] = this.config.commitmentLevel;
-    }
-
-    if (fromSlot !== undefined) {
-      source['from-slot'] = fromSlot;
+    if (fromBlockNumber !== undefined) {
+      source['from-slot'] = fromBlockNumber;
     }
 
     return {
