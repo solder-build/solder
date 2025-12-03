@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { CursorStore } from "./db";
-import type { OnEventConfig, EventHandler, ExtractEventNames } from "./indexer";
+import type { OnEventConfig, EventHandler, ExtractEventNames } from "./types/config.types";
 import type {
   AnchorIdl,
   InstructionNames,

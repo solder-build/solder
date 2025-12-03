@@ -1,147 +1,20 @@
-import { RpcClient } from "../rpc/rpc";
-import { AnchorIdl, EventType, IdlEvent } from "../idl/idl-types";
-import { LegacyEventType, LegacyIdl } from "../idl/legacy-idl-types";
-import { isLegacyIdl } from "../idl/idl";
+import { RpcClient, type BlockTransactionInfo } from "../rpc/rpc";
+import { DecodedEvent, isLegacyIdl } from "../idl/idl";
 import { CursorStore } from "./db";
 import { drizzle, NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { Idl } from "@coral-xyz/anchor";
-
-export interface IndexerConfig {
-  startBlock: number;
-  rpcUrl?: string;
-  databaseUrl?: string; // Postgres connection string
-  cursorKey?: string; // namespaced cursor key
-  enableUIProgress?: boolean; // enable UI progress
-}
-
-
-export interface RegisteredProgram {
-  programId: string;
-  eventTypes: string[];
-  idl: any; // Anchor IDL object
-}
-
-export interface EventHandler<
-  TIdl extends AnchorIdl = AnchorIdl,
-  TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
-> {
-  id: string;
-  programId: string;
-  idl: TIdl;
-  eventName: string;
-  handler: (
-    event: IndexerEvent<TIdl, TEventName>,
-    db: NodePgDatabase<Record<string, never>> & { $client: Pool },
-  ) => Promise<void> | void;
-}
-
-export interface OnEventConfig<
-  TIdl extends AnchorIdl = AnchorIdl,
-  TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
-> {
-  programId: string;
-  idl: TIdl;
-  eventName: TEventName;
-  handler: (
-    event: IndexerEvent<TIdl, TEventName>,
-    db: NodePgDatabase<Record<string, never>> & { $client: Pool },
-  ) => Promise<void> | void;
-}
-
-export interface IndexerTransaction {
-  hash: string;
-  slot: number;
-  blockTime: number | null;
-  blockHash: string;
-  data: {
-    block_number: number;
-    block_hash: string;
-    block_ts: number | null;
-    txn_hash: string | undefined;
-    instructions: Array<{
-      index: number;
-      programId: string;
-      data: unknown & {
-        type: string;
-        info: unknown;
-      };
-    }>;
-  };
-}
-
-export interface TransactionHandler {
-  id: string;
-  filterByInstructions?: string[];
-  filterByProgramIds?: string[];
-  handler: (
-    transaction: IndexerTransaction,
-    db: NodePgDatabase<Record<string, never>> & { $client: Pool },
-  ) => Promise<void> | void;
-}
-
-export interface OnTransactionConfig {
-  filterByInstructions?: string[]; // if provided, only transactions with these instructions will be passed to the handler
-  filterByProgramIds?: string[]; // if provided, only transactions with these program IDs will be passed to the handler
-  handler: (
-    transaction: IndexerTransaction,
-    db: NodePgDatabase<Record<string, never>> & { $client: Pool },
-  ) => Promise<void> | void;
-}
-
-// Type to extract event names from IDL (supports both legacy and current formats)
-export type ExtractEventNames<TIdl extends AnchorIdl> =
-  [TIdl] extends [LegacyIdl]
-  ? TIdl extends { events?: readonly { name: infer TName }[] }
-  ? TName extends string
-  ? TName
-  : never
-  : never
-  : TIdl extends { events?: readonly { name: infer TName }[] }
-  ? TName extends string
-  ? TName
-  : never
-  : never;
-
-// Type to get event data from IDL
-export type ExtractEventData<
-  TIdl extends AnchorIdl,
-  TEventName extends ExtractEventNames<TIdl>,
-> = TIdl extends { events: infer TEvents }
-  ? TEvents extends readonly any[]
-  ? TEvents[number] extends { name: TEventName; fields: infer TFields }
-  ? TFields
-  : never
-  : never
-  : never;
-
-type EventPayload<
-  TIdl extends AnchorIdl,
-  TEventName extends ExtractEventNames<TIdl>
-> = TIdl extends LegacyIdl
-  ? LegacyEventType<TIdl, TEventName & string>
-  : TIdl extends AnchorIdl
-  ? EventType<TIdl, TEventName>
-  : never;
-
-// Type for the complete event object passed to handlers (supports both legacy and current IDL)
-export interface IndexerEvent<
-  TIdl extends AnchorIdl = AnchorIdl,
-  TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
-> {
-  name: string;
-  contract: string;
-  type: string;
-  params: EventPayload<TIdl, TEventName>;
-  timestamp: string;
-  transaction: {
-    hash: string;
-    slot: number;
-    blockTime: number;
-  };
-  programId: string;
-  eventName: TEventName;
-}
+import type { AnchorIdl } from "../idl/idl-types";
+import type {
+  ExtractEventNames,
+  EventHandler,
+  IndexerConfig,
+  IndexerEvent,
+  IndexerTransaction,
+  OnEventConfig,
+  OnTransactionConfig,
+  RegisteredProgram,
+  TransactionHandler,
+} from "./types/config.types";
 
 export class Indexer {
   private readonly rpcClient: RpcClient;
@@ -202,7 +75,6 @@ export class Indexer {
 
   /**
    * Validate that the IDL contains the requested event types
-   * Supports both legacy and current IDL formats
    */
   private validateEventTypes(idl: any, eventTypes: string[]): void {
     if (!idl) {
@@ -312,33 +184,26 @@ export class Indexer {
    * @param config Configuration for the transaction handler
    * @returns A function to remove the transaction handler
    */
-  public async onTransaction(
-    config: OnTransactionConfig,
+  public async onTransaction<TIdl extends AnchorIdl>(
+    config: OnTransactionConfig<TIdl>,
   ): Promise<() => void> {
-    let handlerId = `transaction-${Date.now()}`;
+    const handlerId = `transaction-${config.programId}-${Date.now()}`;
 
-    if (config.filterByInstructions) {
-      handlerId += `-${config.filterByInstructions.sort().join("-")}`;
-    }
-
-    if (config.filterByProgramIds) {
-      handlerId += `-${config.filterByProgramIds.sort().join("-")}`;
-    }
-
-    const transactionHandler: TransactionHandler = {
+    const transactionHandler: TransactionHandler<TIdl> = {
       id: handlerId,
-      filterByInstructions: config.filterByInstructions,
-      filterByProgramIds: config.filterByProgramIds,
+      programId: config.programId,
+      idl: config.idl,
+      instructionNames: config.instructionNames,
       handler: config.handler,
     };
 
     this.transactionHandlers.set(handlerId, transactionHandler);
 
-    console.log(`Registered transaction handler`);
+    console.log(`Registered transaction handler for program ${config.programId}`);
 
     return () => {
       this.transactionHandlers.delete(handlerId);
-      console.log(`Removed transaction handler`);
+      console.log(`Removed transaction handler for program ${config.programId}`);
     };
   }
 
@@ -468,31 +333,49 @@ export class Indexer {
     const programIds = this.getRegisteredProgramIds();
 
     const hasTransactionHandlers = this.transactionHandlers.size > 0;
+    const hasEventHandlers = programIds.length > 0;
 
-    if (programIds.length === 0 && !hasTransactionHandlers) {
+    if (!hasEventHandlers && !hasTransactionHandlers) {
       console.log(`No programs registered, skipping block ${slot}`);
       return;
     }
 
     try {
-      // Create program IDL mapping
-      const programIdls = new Map<string, Idl>();
+      // Create program IDL mapping for events (registered programs)
+      const programIdls = new Map<string, AnchorIdl>();
       this.registeredPrograms.forEach((program, programId) => {
         programIdls.set(programId, program.idl);
       });
 
-      const blockData = await this.rpcClient.getBlockWithEvents(slot, {
-        programIds,
-        programIdls,
+      const txProgramIds = new Set<string>();
+      this.transactionHandlers.forEach((handler) => {
+        txProgramIds.add(handler.programId);
+        if (handler.idl) {
+          programIdls.set(handler.programId, handler.idl as any);
+        }
       });
 
-      if (blockData) {
-        for (const transaction of blockData.transactions) {
+      const blockInfo = await this.rpcClient.getBlockInfo(slot, {
+        includeEvents: hasEventHandlers,
+        includeInstructions: hasTransactionHandlers,
+        eventFilter: hasEventHandlers
+          ? { programIds, programIdls }
+          : undefined,
+        instructionFilter: hasTransactionHandlers
+          ? { programIds: Array.from(txProgramIds), programIdls }
+          : undefined,
+      });
+
+      if (!blockInfo) {
+        return;
+      }
+
+      if (hasEventHandlers) {
+        for (const transaction of blockInfo.transactions) {
+          if (!transaction.events?.length) continue;
           for (const eventInfo of transaction.events) {
             const startTime = performance.now();
             await this.handleEvent(eventInfo, transaction);
-
-            // Track event stats
             const duration = performance.now() - startTime;
             const key = `${eventInfo.programId}-${eventInfo.event.name}`;
             const existing = this.progressState.eventStats.get(key);
@@ -510,21 +393,18 @@ export class Indexer {
         }
       }
 
-
       if (hasTransactionHandlers) {
-        const blockDataForTransactions = await this.rpcClient.getBlockWithInstructions(slot);
-        if (blockDataForTransactions) {
-          for (const transaction of blockDataForTransactions.transactions) {
-            await this.handleTransaction(transaction);
-          }
+        for (const transaction of blockInfo.transactions) {
+          if (!transaction.instructions?.length) continue;
+          await this.handleTransaction(transaction);
         }
       }
 
-      if (this.cursorStore && blockData?.block_hash) {
+      if (this.cursorStore && blockInfo.block_hash) {
         await this.cursorStore.upsertCursor(
           this.cursorKey,
           slot,
-          blockData.block_hash,
+          blockInfo.block_hash,
         );
       }
     } catch (error) {
@@ -536,17 +416,7 @@ export class Indexer {
    * Handle a transaction with instructions for transaction handlers
    */
   private async handleTransaction(
-    transaction: {
-      block_number: number;
-      block_hash: string;
-      block_ts: number | null;
-      txn_hash: string | undefined;
-      instructions?: Array<{
-        index: number;
-        programId: string;
-        parsed: unknown;
-      }>;
-    },
+    transaction: BlockTransactionInfo,
   ): Promise<void> {
     if (!transaction.instructions || transaction.instructions.length === 0) {
       return;
@@ -562,55 +432,35 @@ export class Indexer {
       return;
     }
 
-    // Convert instructions to match IndexerTransaction format
-    const instructions = transaction.instructions.map((instr) => ({
-      index: instr.index,
-      programId: instr.programId,
-      data: instr.parsed,
-    }));
-
-
     const transactionData: IndexerTransaction = {
       hash: transaction.txn_hash,
       slot: transaction.block_number,
       blockTime: transaction.block_ts,
       blockHash: transaction.block_hash,
-      data: {
-        block_number: transaction.block_number,
-        block_hash: transaction.block_hash,
-        block_ts: transaction.block_ts,
-        txn_hash: transaction.txn_hash,
-        instructions: instructions.map(instr => ({
-          index: instr.index,
-          programId: instr.programId,
-          data: instr.data as { type: string; info: unknown },
-        })),
-      },
+      instructions: transaction.instructions,
     };
 
     // Call all transaction handlers
     for (const handler of allHandlers) {
       try {
+        // Filter by programId first
+        const hasProgramMatch = transaction.instructions.some(
+          (instr) => instr.programId === handler.programId,
+        );
 
-        if (handler.filterByInstructions && handler.filterByInstructions.length > 0) {
-          // Check if any instruction.programId matches any of filterByInstructions
-          const instructionNames = instructions.map(instr => (instr.data as { type: string }).type);
-          const hasIntersection = handler.filterByInstructions.some(filterInstructionName =>
-            instructionNames.includes(filterInstructionName)
-          );
-          if (!hasIntersection) {
-            return;
-          }
+        if (!hasProgramMatch) {
+          continue;
         }
 
-        if (handler.filterByProgramIds && handler.filterByProgramIds.length > 0) {
-          // Check if any instruction.programId matches any of filterByProgramIds
-          const instructionProgramIds = instructions.map(instr => instr.programId);
-          const hasIntersection = handler.filterByProgramIds.some(filterProgramId =>
-            instructionProgramIds.includes(filterProgramId)
+        if (handler.instructionNames && handler.instructionNames.length > 0) {
+          const instructionNames = transaction.instructions
+            .filter((instr) => instr.programId === handler.programId)
+            .map((instr) => (instr.parsed as { name: string }).name);
+          const hasNameMatch = handler.instructionNames.some((name) =>
+            instructionNames.includes(name),
           );
-          if (!hasIntersection) {
-            return;
+          if (!hasNameMatch) {
+            continue;
           }
         }
 
@@ -628,7 +478,7 @@ export class Indexer {
    * Handle a decoded event
    */
   private async handleEvent(
-    eventInfo: { index: number; programId: string; event: any },
+    eventInfo: { index: number; programId: string; event: DecodedEvent },
     transaction: any,
   ): Promise<void> {
 
@@ -641,15 +491,10 @@ export class Indexer {
 
     // Check if this event type is registered for monitoring
     if (event.name && registeredProgram.eventTypes.includes(event.name)) {
-      // console.log(`Event detected: ${event.name} from program ${programId}`);
-      // Parse event with the provided IDL for better type safety
-      const parsedEvent = this.parseEventWithIdl(event, registeredProgram.idl);
-
-      // Call all registered event handlers for this contract and event
       await this.callEventHandlers(
         programId,
         event.name,
-        parsedEvent,
+        event,
         transaction,
       );
     }
@@ -661,9 +506,13 @@ export class Indexer {
   private async callEventHandlers(
     programId: string,
     eventName: string,
-    parsedEvent: any,
+    parsedEvent: DecodedEvent,
     transaction: any,
   ): Promise<void> {
+    console.log("==============DEBUG parsedEventparsedEvent NOBODY===============");
+    console.log(parsedEvent);
+    console.log("==============DEBUG NOBODY===============");
+
     const relevantHandlers = Array.from(this.eventHandlers.values()).filter(
       (handler) =>
         handler.programId === programId && handler.eventName === eventName,
@@ -671,17 +520,20 @@ export class Indexer {
 
     for (const handler of relevantHandlers) {
       try {
-        // Create event object with additional context
+        const eventTimestamp = transaction.block_ts
+          ? new Date(transaction.block_ts * 1000).toISOString()
+          : new Date().toISOString();
+
         const eventData: IndexerEvent<AnchorIdl, string> = {
-          ...parsedEvent,
-          programId,
-          eventName,
-          timestamp: transaction.block_ts ? new Date(transaction.block_ts * 1000).toISOString() : new Date().toISOString(),
+          params: parsedEvent.data as IndexerEvent<AnchorIdl, string>["params"],
+          timestamp: eventTimestamp,
           transaction: {
-            hash: transaction.block_hash,
+            hash: transaction.txn_hash ?? transaction.block_hash,
             slot: transaction.block_number,
             blockTime: transaction.block_ts,
           },
+          programId,
+          eventName,
         };
 
         if (!this.db) {
@@ -694,41 +546,6 @@ export class Indexer {
           error,
         );
       }
-    }
-  }
-
-  /**
-   * Parse event data using the provided IDL for better type safety
-   * Supports both legacy and current IDL formats
-   */
-  private parseEventWithIdl(event: any, idl: Idl | LegacyIdl): Partial<IndexerEvent> {
-    try {
-      // Find the event definition in the IDL
-      if (!idl.events) {
-        console.warn(`No events defined in IDL`);
-        return event;
-      }
-
-      const eventDefinition = idl.events.find(
-        (e: any) => e.name === event.name,
-      );
-      if (!eventDefinition) {
-        console.warn(`Event definition not found in IDL for ${event.name}`);
-        return event.parsed;
-      }
-
-
-      // Return the parsed event with IDL context
-      return {
-        name: event.name,
-        contract: event.contract,
-        type: event.type,
-        params: event.parsed,
-        timestamp: new Date().toISOString(),
-      };
-    } catch (error) {
-      console.error(`Error parsing event with IDL:`, error);
-      return event.parsed;
     }
   }
 

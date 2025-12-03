@@ -1,13 +1,17 @@
-export {
-  Indexer,
-  type IndexerConfig,
-  type RegisteredProgram,
-  type EventHandler,
-  type OnEventConfig,
-  type ExtractEventNames,
-  type ExtractEventData,
-  type IndexerEvent,
-} from "./indexer";
+export { Indexer } from "./indexer";
+
+export type {
+  IndexerConfig,
+  RegisteredProgram,
+  EventHandler,
+  OnEventConfig,
+  ExtractEventNames,
+  ExtractEventData,
+  IndexerEvent,
+  IndexerTransaction,
+  TransactionHandler,
+  OnTransactionConfig as RpcOnTransactionConfig,
+} from "./types/config.types";
 
 export {
   GrpcIndexer,
