@@ -1,4 +1,4 @@
-import { RpcClient, type BlockTransactionInfo } from "../rpc/rpc";
+import { RpcClient, type BlockTransactionInfo, type BlockInfoResult } from "../rpc/rpc";
 import { DecodedEvent, isLegacyIdl } from "../idl/idl";
 import { CursorStore } from "./db";
 import { drizzle, NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -15,8 +15,21 @@ import type {
   RegisteredProgram,
   TransactionHandler,
 } from "./types/config.types";
+import { parallelMap } from "../utils/async";
+
+type BlockProcessingContext = {
+  programIds: string[];
+  programIdls: Map<string, AnchorIdl>;
+  txProgramIds: string[];
+  hasEventHandlers: boolean;
+  hasTransactionHandlers: boolean;
+};
 
 export class Indexer {
+  private readonly HISTORICAL_CHUNK_SIZE = 100;
+  private readonly HISTORICAL_CONCURRENCY = 20;
+  private readonly HISTORICAL_HEADROOM = 2;
+
   private readonly rpcClient: RpcClient;
   private registeredPrograms: Map<string, RegisteredProgram> = new Map();
   private eventHandlers: Map<string, EventHandler<any>> = new Map();
@@ -241,9 +254,10 @@ export class Indexer {
     this.isRunning = true;
 
     // Initialize progress state
+    const latestSlot = Number(await this.rpcClient.getSlot());
     this.progressState.startSlot = this.currentSlot;
     this.progressState.startTime = Date.now();
-    this.progressState.latestSlot = Number(await this.rpcClient.getSlot());
+    this.progressState.latestSlot = latestSlot;
 
     // Setup UI if enabled
     if (this.enableUIProgress) {
@@ -269,6 +283,9 @@ export class Indexer {
       );
     }
 
+    if (this.currentSlot < latestSlot - this.HISTORICAL_HEADROOM) {
+      await this.processHistoricalRange(this.currentSlot, latestSlot - this.HISTORICAL_HEADROOM);
+    }
 
     try {
       await this.processBlocks();
@@ -330,39 +347,21 @@ export class Indexer {
       this.progressState.requestTimestamps.shift(); // keep last 100
     }
 
-    const programIds = this.getRegisteredProgramIds();
-
-    const hasTransactionHandlers = this.transactionHandlers.size > 0;
-    const hasEventHandlers = programIds.length > 0;
-
-    if (!hasEventHandlers && !hasTransactionHandlers) {
+    const context = this.buildBlockProcessingContext();
+    if (!context.hasEventHandlers && !context.hasTransactionHandlers) {
       console.log(`No programs registered, skipping block ${slot}`);
       return;
     }
 
     try {
-      // Create program IDL mapping for events (registered programs)
-      const programIdls = new Map<string, AnchorIdl>();
-      this.registeredPrograms.forEach((program, programId) => {
-        programIdls.set(programId, program.idl);
-      });
-
-      const txProgramIds = new Set<string>();
-      this.transactionHandlers.forEach((handler) => {
-        txProgramIds.add(handler.programId);
-        if (handler.idl) {
-          programIdls.set(handler.programId, handler.idl as any);
-        }
-      });
-
       const blockInfo = await this.rpcClient.getBlockInfo(slot, {
-        includeEvents: hasEventHandlers,
-        includeInstructions: hasTransactionHandlers,
-        eventFilter: hasEventHandlers
-          ? { programIds, programIdls }
+        includeEvents: context.hasEventHandlers,
+        includeInstructions: context.hasTransactionHandlers,
+        eventFilter: context.hasEventHandlers
+          ? { programIds: context.programIds, programIdls: context.programIdls }
           : undefined,
-        instructionFilter: hasTransactionHandlers
-          ? { programIds: Array.from(txProgramIds), programIdls }
+        instructionFilter: context.hasTransactionHandlers
+          ? { programIds: context.txProgramIds, programIdls: context.programIdls }
           : undefined,
       });
 
@@ -370,45 +369,185 @@ export class Indexer {
         return;
       }
 
-      if (hasEventHandlers) {
-        for (const transaction of blockInfo.transactions) {
-          if (!transaction.events?.length) continue;
-          for (const eventInfo of transaction.events) {
-            const startTime = performance.now();
-            await this.handleEvent(eventInfo, transaction);
-            const duration = performance.now() - startTime;
-            const key = `${eventInfo.programId}-${eventInfo.event.name}`;
-            const existing = this.progressState.eventStats.get(key);
-            if (existing) {
-              existing.count++;
-              existing.totalDuration += duration;
-            } else {
-              this.progressState.eventStats.set(key, {
-                count: 1,
-                totalDuration: duration,
-                contractAddress: eventInfo.programId.slice(0, 16),
-              });
-            }
+      await this.handleBlockData(slot, blockInfo, context);
+    } catch (error) {
+      console.error(`Error fetching block ${slot}:`, error);
+    }
+  }
+
+  private buildBlockProcessingContext(): BlockProcessingContext {
+    const programIds = this.getRegisteredProgramIds();
+    const programIdls = new Map<string, AnchorIdl>();
+    this.registeredPrograms.forEach((program, programId) => {
+      programIdls.set(programId, program.idl);
+    });
+
+    const txProgramIds = new Set<string>();
+    this.transactionHandlers.forEach((handler) => {
+      txProgramIds.add(handler.programId);
+      if (handler.idl) {
+        programIdls.set(handler.programId, handler.idl as AnchorIdl);
+      }
+    });
+
+    return {
+      programIds,
+      programIdls,
+      txProgramIds: Array.from(txProgramIds),
+      hasEventHandlers: programIds.length > 0,
+      hasTransactionHandlers: this.transactionHandlers.size > 0,
+    };
+  }
+
+  private async handleBlockData(
+    slot: number,
+    blockInfo: BlockInfoResult,
+    context: BlockProcessingContext,
+  ): Promise<void> {
+    const { hasEventHandlers, hasTransactionHandlers } = context;
+
+    if (hasEventHandlers) {
+      for (const transaction of blockInfo.transactions) {
+        if (!transaction.events?.length) continue;
+        for (const eventInfo of transaction.events) {
+          const startTime = performance.now();
+          await this.handleEvent(eventInfo, transaction);
+          const duration = performance.now() - startTime;
+          const key = `${eventInfo.programId}-${eventInfo.event.name}`;
+          const existing = this.progressState.eventStats.get(key);
+          if (existing) {
+            existing.count++;
+            existing.totalDuration += duration;
+          } else {
+            this.progressState.eventStats.set(key, {
+              count: 1,
+              totalDuration: duration,
+              contractAddress: eventInfo.programId.slice(0, 16),
+            });
           }
         }
       }
+    }
 
-      if (hasTransactionHandlers) {
-        for (const transaction of blockInfo.transactions) {
-          if (!transaction.instructions?.length) continue;
-          await this.handleTransaction(transaction);
+    if (hasTransactionHandlers) {
+      for (const transaction of blockInfo.transactions) {
+        if (!transaction.instructions?.length) continue;
+        await this.handleTransaction(transaction);
+      }
+    }
+
+    if (this.cursorStore && blockInfo.block_hash) {
+      await this.cursorStore.upsertCursor(
+        this.cursorKey,
+        slot,
+        blockInfo.block_hash,
+      );
+    }
+  }
+
+  private async processHistoricalRange(fromSlot: number, toSlot: number): Promise<void> {
+    if (fromSlot > toSlot) {
+      return;
+    }
+
+    const context = this.buildBlockProcessingContext();
+    if (!context.hasEventHandlers && !context.hasTransactionHandlers) {
+      this.currentSlot = toSlot + 1;
+      return;
+    }
+
+    let lastLatestSlotUpdate = Date.now();
+    const LATEST_SLOT_UPDATE_INTERVAL = 5000; // Update latestSlot every 5 seconds
+
+    for (let chunkStart = fromSlot; chunkStart <= toSlot; chunkStart += this.HISTORICAL_CHUNK_SIZE) {
+      const chunkEnd = Math.min(chunkStart + this.HISTORICAL_CHUNK_SIZE - 1, toSlot);
+      const slotsToFetch: number[] = [];
+      for (let slot = chunkStart; slot <= chunkEnd; slot++) {
+        slotsToFetch.push(slot);
+      }
+
+      const fetchStart = performance.now();
+      const fetchedBlocks = await parallelMap(
+        slotsToFetch,
+        async (slot) => {
+          const blockFetchStart = performance.now();
+          
+          // Track RPC request for progress tracking (per block fetch)
+          this.progressState.requestTimestamps.push(Date.now());
+          if (this.progressState.requestTimestamps.length > 100) {
+            this.progressState.requestTimestamps.shift(); // keep last 100
+          }
+
+          try {
+            const blockInfo = await this.rpcClient.getBlockInfo(slot, {
+              includeEvents: context.hasEventHandlers,
+              includeInstructions: context.hasTransactionHandlers,
+              eventFilter: context.hasEventHandlers
+                ? { programIds: context.programIds, programIdls: context.programIdls }
+                : undefined,
+              instructionFilter: context.hasTransactionHandlers
+                ? { programIds: context.txProgramIds, programIdls: context.programIdls }
+                : undefined,
+            });
+            const fetchDuration = performance.now() - blockFetchStart;
+            console.log(`[processHistoricalRange] Slot ${slot}: fetched in ${fetchDuration.toFixed(2)}ms ${blockInfo ? '✓' : '✗ (no block)'}`);
+            return { slot, blockInfo };
+          } catch (error) {
+            const fetchDuration = performance.now() - blockFetchStart;
+            console.error(`[processHistoricalRange] Slot ${slot}: error after ${fetchDuration.toFixed(2)}ms:`, error);
+            return { slot, blockInfo: null };
+          }
+        },
+        this.HISTORICAL_CONCURRENCY
+      );
+      const fetchDuration = performance.now() - fetchStart;
+
+      const validBlocks = fetchedBlocks.filter(r => r.blockInfo !== null);
+      const processStart = performance.now();
+      
+      // Process results in order
+      let maxSlot = 0;
+      for (const { slot, blockInfo } of fetchedBlocks) {
+        if (blockInfo) {
+          await this.handleBlockData(slot, blockInfo, context);
+        }
+        maxSlot = Math.max(maxSlot, slot);
+      }
+      const processDuration = performance.now() - processStart;
+
+      // Update currentSlot after processing chunk
+      if (maxSlot > 0) {
+        this.currentSlot = maxSlot + 1;
+      }
+
+      console.log(
+        `[processHistoricalRange] Chunk slots ${chunkStart}-${chunkEnd}: ` +
+        `fetched ${validBlocks.length}/${slotsToFetch.length} blocks in ${fetchDuration.toFixed(2)}ms, ` +
+        `processed in ${processDuration.toFixed(2)}ms (total: ${(fetchDuration + processDuration).toFixed(2)}ms)`
+      );
+
+      // Periodically refresh latestSlot to keep progress calculations accurate
+      const now = Date.now();
+      if (now - lastLatestSlotUpdate >= LATEST_SLOT_UPDATE_INTERVAL) {
+        try {
+          const latestSlot = Number(await this.rpcClient.getSlot());
+          this.progressState.latestSlot = latestSlot;
+          lastLatestSlotUpdate = now;
+        } catch (error) {
+          console.error("Error updating latest slot:", error);
         }
       }
+    }
 
-      if (this.cursorStore && blockInfo.block_hash) {
-        await this.cursorStore.upsertCursor(
-          this.cursorKey,
-          slot,
-          blockInfo.block_hash,
-        );
-      }
+    // Ensure currentSlot is set to the next slot after the range
+    this.currentSlot = toSlot + 1;
+    
+    // Final update of latestSlot before transitioning to real-time sync
+    try {
+      const latestSlot = Number(await this.rpcClient.getSlot());
+      this.progressState.latestSlot = latestSlot;
     } catch (error) {
-      console.error(`Error fetching block ${slot}:`, error);
+      console.error("Error updating latest slot:", error);
     }
   }
 
@@ -479,7 +618,7 @@ export class Indexer {
    */
   private async handleEvent(
     eventInfo: { index: number; programId: string; event: DecodedEvent },
-    transaction: any,
+    transaction: BlockTransactionInfo,
   ): Promise<void> {
 
     const { programId, event } = eventInfo;
@@ -507,11 +646,8 @@ export class Indexer {
     programId: string,
     eventName: string,
     parsedEvent: DecodedEvent,
-    transaction: any,
+    transaction: BlockTransactionInfo,
   ): Promise<void> {
-    console.log("==============DEBUG parsedEventparsedEvent NOBODY===============");
-    console.log(parsedEvent);
-    console.log("==============DEBUG NOBODY===============");
 
     const relevantHandlers = Array.from(this.eventHandlers.values()).filter(
       (handler) =>
@@ -530,7 +666,7 @@ export class Indexer {
           transaction: {
             hash: transaction.txn_hash ?? transaction.block_hash,
             slot: transaction.block_number,
-            blockTime: transaction.block_ts,
+            blockTime: transaction.block_ts ?? 0,
           },
           programId,
           eventName,
