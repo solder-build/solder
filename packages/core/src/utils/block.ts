@@ -38,7 +38,9 @@ export async function fetchParsedBlock(
 }> {
   const response = await rpc.getBlock(BigInt(slot), {
     encoding: "jsonParsed",
+    transactionDetails: "accounts",
     maxSupportedTransactionVersion: 0,
+    rewards: false,
   }).send();
 
   if (!response) return { block: null, blockHash: null, blockTime: null };

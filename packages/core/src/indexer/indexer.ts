@@ -26,8 +26,8 @@ type BlockProcessingContext = {
 };
 
 export class Indexer {
-  private readonly HISTORICAL_CHUNK_SIZE = 100;
-  private readonly HISTORICAL_CONCURRENCY = 20;
+  private readonly HISTORICAL_CHUNK_SIZE = 50;
+  private readonly HISTORICAL_CONCURRENCY = 10;
   private readonly HISTORICAL_HEADROOM = 2;
 
   private readonly rpcClient: RpcClient;
