@@ -25,10 +25,20 @@ type BlockProcessingContext = {
   hasTransactionHandlers: boolean;
 };
 
+type SignatureState = {
+  latestSignature: string | null;
+  latestSlot: number | null;
+  backfillBefore: string | null;
+  backfillSlot: number | null;
+  historicalComplete: boolean;
+};
+
 export class Indexer {
   private readonly HISTORICAL_CHUNK_SIZE = 50;
   private readonly HISTORICAL_CONCURRENCY = 10;
   private readonly HISTORICAL_HEADROOM = 2;
+  private readonly signatureBatchSize: number;
+  private readonly useTransactionHistory: boolean;
 
   private readonly rpcClient: RpcClient;
   private registeredPrograms: Map<string, RegisteredProgram> = new Map();
@@ -50,12 +60,15 @@ export class Indexer {
     latestSlot: 0,
     startTime: 0,
   };
+  private signatureState: Map<string, SignatureState> = new Map();
 
   constructor(config: IndexerConfig) {
     this.rpcClient = new RpcClient({ endpoint: config.rpcUrl ?? "https://api.mainnet-beta.solana.com" });
     this.currentSlot = config.startBlock;
     this.cursorKey = config.cursorKey ?? "default";
     this.enableUIProgress = config.enableUIProgress ?? false;
+    this.useTransactionHistory = config.useTransactionHistory ?? true;
+    this.signatureBatchSize = config.signatureBatchSize ?? 500;
     if (config.databaseUrl) {
       const pool = new Pool({
         connectionString: process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/postgres",
@@ -281,6 +294,11 @@ export class Indexer {
       console.log(
         `Monitoring all transactions (${this.transactionHandlers.size} handler(s))`,
       );
+    }
+
+    if (this.useTransactionHistory) {
+      await this.processProgramSignatures();
+      return;
     }
 
     if (this.currentSlot < latestSlot - this.HISTORICAL_HEADROOM) {
@@ -548,6 +566,277 @@ export class Indexer {
       this.progressState.latestSlot = latestSlot;
     } catch (error) {
       console.error("Error updating latest slot:", error);
+    }
+  }
+
+  private getAllHandlerProgramIds(context: BlockProcessingContext): string[] {
+    const set = new Set<string>();
+    context.programIds.forEach((id) => set.add(id));
+    context.txProgramIds.forEach((id) => set.add(id));
+    return Array.from(set);
+  }
+
+  private async processProgramSignatures(): Promise<void> {
+    const context = this.buildBlockProcessingContext();
+    if (!context.hasEventHandlers && !context.hasTransactionHandlers) {
+      console.log("No handlers registered; nothing to process.");
+      this.isRunning = false;
+      return;
+    }
+
+    await this.loadSignatureState(context);
+    await this.processHistoricalSignatures(context);
+    await this.processLiveSignatures(context);
+  }
+
+  private async loadSignatureState(context: BlockProcessingContext): Promise<void> {
+    const programIds = this.getAllHandlerProgramIds(context);
+    for (const programId of programIds) {
+      const existing: SignatureState = this.signatureState.get(programId) ?? {
+        latestSignature: null,
+        latestSlot: null,
+        backfillBefore: null,
+        backfillSlot: null,
+        historicalComplete: false,
+      };
+
+      if (this.cursorStore) {
+        const record = await this.cursorStore.getSignatureCursor(this.cursorKey, programId);
+        if (record) {
+          this.signatureState.set(programId, {
+            latestSignature: record.latest_signature,
+            latestSlot: record.latest_slot,
+            backfillBefore: record.backfill_before,
+            backfillSlot: record.backfill_slot,
+            historicalComplete: record.backfill_before === null && record.backfill_slot !== null,
+          });
+          continue;
+        }
+      }
+
+      this.signatureState.set(programId, existing);
+    }
+  }
+
+  private async processHistoricalSignatures(context: BlockProcessingContext): Promise<void> {
+    const programIds = this.getAllHandlerProgramIds(context);
+    const minSlot = this.progressState.startSlot;
+    let hasMore = true;
+
+    console.log(
+      `[signatures] Historical backfill start (minSlot=${minSlot}, batch=${this.signatureBatchSize})`,
+    );
+
+    while (this.isRunning && hasMore) {
+      hasMore = false;
+
+      for (const programId of programIds) {
+        const state = this.signatureState.get(programId);
+        if (!state || state.historicalComplete) continue;
+
+        this.trackRequestTimestamp();
+        const fetchStart = performance.now();
+        const signatures = await this.rpcClient.getSignaturesForAddress(programId, {
+          limit: this.signatureBatchSize,
+          before: state.backfillBefore ?? undefined,
+        });
+        const fetchDuration = performance.now() - fetchStart;
+
+        if (!signatures.length) {
+          state.historicalComplete = true;
+          console.log(`[signatures][historical] ${programId}: no more signatures, marking complete`);
+          await this.persistSignatureState(programId, state);
+          continue;
+        }
+
+        const eligible = signatures.filter((sig) => sig.slot >= minSlot);
+        if (eligible.length === 0) {
+          state.historicalComplete = true;
+          console.log(
+            `[signatures][historical] ${programId}: reached minSlot boundary (${minSlot}), marking complete`,
+          );
+          await this.persistSignatureState(programId, state);
+          continue;
+        }
+
+        const ordered = eligible.reverse(); // process oldest -> newest for stable ordering
+        for (const sig of ordered) {
+          await this.processSignature(programId, sig.signature, sig.slot, context);
+          state.latestSignature = sig.signature;
+          state.latestSlot = sig.slot;
+          this.currentSlot = Math.max(this.currentSlot, sig.slot + 1);
+          this.progressState.latestSlot = Math.max(this.progressState.latestSlot, sig.slot);
+        }
+
+        const oldest = signatures[signatures.length - 1]!;
+        state.backfillBefore = oldest.signature;
+        state.backfillSlot = oldest.slot;
+        if (oldest.slot < minSlot) {
+          state.historicalComplete = true;
+        }
+
+        hasMore = signatures.length === this.signatureBatchSize;
+        console.log(
+          `[signatures][historical] ${programId}: processed ${ordered.length}/${signatures.length} eligible (fetched in ${fetchDuration.toFixed(
+            2,
+          )}ms) nextBefore=${state.backfillBefore ?? "n/a"} hasMore=${hasMore}`,
+        );
+        await this.persistSignatureState(programId, state);
+      }
+    }
+  }
+
+  private async processLiveSignatures(context: BlockProcessingContext): Promise<void> {
+    const programIds = this.getAllHandlerProgramIds(context);
+
+    console.log(
+      `[signatures] Live polling start (batch=${this.signatureBatchSize})`,
+    );
+
+    while (this.isRunning) {
+      for (const programId of programIds) {
+        const state = this.signatureState.get(programId);
+        if (!state) continue;
+
+        const newSignatures = await this.fetchNewSignatures(programId, state.latestSignature);
+        if (newSignatures.length === 0) {
+          continue;
+        }
+
+        const ordered = newSignatures.reverse();
+        for (const sig of ordered) {
+          await this.processSignature(programId, sig.signature, sig.slot, context);
+          state.latestSignature = sig.signature;
+          state.latestSlot = sig.slot;
+          this.currentSlot = Math.max(this.currentSlot, sig.slot + 1);
+          this.progressState.latestSlot = Math.max(this.progressState.latestSlot, sig.slot);
+        }
+
+        console.log(
+          `[signatures][live] ${programId}: processed ${ordered.length} new signatures (latestSlot=${state.latestSlot ?? "n/a"})`,
+        );
+
+        await this.persistSignatureState(programId, state);
+      }
+
+      try {
+        const latestSlot = Number(await this.rpcClient.getSlot());
+        this.progressState.latestSlot = Math.max(this.progressState.latestSlot, latestSlot);
+      } catch (error) {
+        console.error("Error updating latest slot:", error);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+
+  private async fetchNewSignatures(programId: string, latestSignature: string | null): Promise<Array<{ signature: string; slot: number }>> {
+    const collected: Array<{ signature: string; slot: number }> = [];
+    let before: string | undefined;
+    const limit = this.signatureBatchSize;
+
+    while (true) {
+      this.trackRequestTimestamp();
+      const batch = await this.rpcClient.getSignaturesForAddress(programId, {
+        limit,
+        before,
+      });
+
+      if (!batch.length) break;
+
+      if (!latestSignature) {
+        collected.push(...batch.map((b) => ({ signature: b.signature, slot: b.slot })));
+        if (batch.length < limit) break;
+        const tail = batch[batch.length - 1];
+        if (tail) {
+          before = tail.signature;
+        }
+        continue;
+      }
+
+      const idx = batch.findIndex((b) => b.signature === latestSignature);
+      if (idx === -1) {
+        collected.push(...batch.map((b) => ({ signature: b.signature, slot: b.slot })));
+        if (batch.length < limit) break;
+        const tail = batch[batch.length - 1];
+        if (tail) {
+          before = tail.signature;
+        }
+        continue;
+      }
+
+      if (idx > 0) {
+        collected.push(
+          ...batch.slice(0, idx).map((b) => ({ signature: b.signature, slot: b.slot }))
+        );
+      }
+      break;
+    }
+
+    return collected;
+  }
+
+  private async processSignature(
+    programId: string,
+    signature: string,
+    slot: number,
+    context: BlockProcessingContext,
+  ): Promise<void> {
+    this.trackRequestTimestamp();
+    const start = performance.now();
+
+    const blockInfo = await this.rpcClient.getTransactionInfo(signature, {
+      includeEvents: context.hasEventHandlers,
+      includeInstructions: context.hasTransactionHandlers,
+      eventFilter: context.hasEventHandlers
+        ? { programIds: context.programIds, programIdls: context.programIdls }
+        : undefined,
+      instructionFilter: context.hasTransactionHandlers
+        ? { programIds: context.txProgramIds, programIdls: context.programIdls }
+        : undefined,
+    });
+
+    if (!blockInfo) {
+      console.log(`[signatures][txn] ${programId}: skip ${signature} (no block info)`);
+      return;
+    }
+
+    const wrapped: BlockInfoResult = {
+      block_number: blockInfo.block_number,
+      block_hash: blockInfo.block_hash,
+      block_time: blockInfo.block_ts,
+      transactions: [blockInfo],
+    };
+
+    try {
+      await this.handleBlockData(slot, wrapped, context);
+      const duration = performance.now() - start;
+      console.log(
+        `[signatures][txn] ${programId}: processed ${signature} slot=${slot} ` +
+        `events=${blockInfo.events.length} instr=${blockInfo.instructions.length} ` +
+        `in ${duration.toFixed(2)}ms`,
+      );
+    } catch (error) {
+      console.error(`[signature] Error processing ${programId} ${signature}:`, error);
+    }
+  }
+
+  private async persistSignatureState(programId: string, state: SignatureState): Promise<void> {
+    if (!this.cursorStore) return;
+    await this.cursorStore.upsertSignatureCursor({
+      cursorKey: this.cursorKey,
+      programId,
+      latestSignature: state.latestSignature,
+      latestSlot: state.latestSlot,
+      backfillBefore: state.backfillBefore,
+      backfillSlot: state.backfillSlot,
+    });
+  }
+
+  private trackRequestTimestamp(): void {
+    this.progressState.requestTimestamps.push(Date.now());
+    if (this.progressState.requestTimestamps.length > 100) {
+      this.progressState.requestTimestamps.shift();
     }
   }
 

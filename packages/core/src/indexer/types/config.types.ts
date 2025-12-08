@@ -13,6 +13,8 @@ export interface IndexerConfig {
   databaseUrl?: string; 
   cursorKey?: string; 
   enableUIProgress?: boolean; 
+  useTransactionHistory?: boolean;
+  signatureBatchSize?: number;
 }
 
 export interface RegisteredProgram {

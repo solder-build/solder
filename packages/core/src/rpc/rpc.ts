@@ -1,4 +1,4 @@
-import { ParsedTransaction } from "@solana/web3.js";
+import { ParsedTransaction, ParsedTransactionMeta, ParsedTransactionWithMeta } from "@solana/web3.js";
 import { createSolanaRpc } from "@solana/rpc";
 import { fromLegacyPublicKey } from "@solana/compat";
 import { DecodedEvent, decodeEvent, decodeInstruction } from "../idl/idl";
@@ -75,6 +75,15 @@ type BlockInfoOptions = {
   | {}
 );
 
+export type SignatureInfo = {
+  signature: string;
+  slot: number;
+  err: unknown;
+  memo: string | null;
+  blockTime: number | null;
+  confirmationStatus: string | null;
+};
+
 export class RpcClient {
   private readonly rpc: ReturnType<typeof createSolanaRpc>;
 
@@ -126,6 +135,112 @@ export class RpcClient {
   async getBlockTime(slot: number): Promise<number | null> {
     const response = await this.rpc.getBlockTime(BigInt(slot)).send();
     return response ? Number(response) : null;
+  }
+
+  async getSignaturesForAddress(
+    address: string,
+    params: {
+      before?: string;
+      until?: string;
+      limit?: number;
+      minContextSlot?: number;
+      commitment?: "processed" | "confirmed" | "finalized";
+    } = {}
+  ): Promise<SignatureInfo[]> {
+    const response = await this.rpc.getSignaturesForAddress(address as any, params as any).send();
+    if (!response) return [];
+
+    return response.map((sig) => ({
+      signature: sig.signature,
+      slot: Number(sig.slot),
+      err: sig.err,
+      memo: sig.memo ?? null,
+      blockTime: sig.blockTime ? Number(sig.blockTime) : null,
+      confirmationStatus: sig.confirmationStatus ?? null,
+    }));
+  }
+
+  async getTransactionInfo(
+    signature: string,
+    options: BlockInfoOptions = {}
+  ): Promise<BlockTransactionInfo | null> {
+    const includeEvents = options.includeEvents ?? true;
+    const includeInstructions = options.includeInstructions ?? true;
+
+    if (!includeEvents && !includeInstructions) {
+      return {
+        block_number: 0,
+        block_hash: "",
+        block_ts: null,
+        txn_hash: signature,
+        instructions: [],
+        events: [],
+      };
+    }
+
+    const txn = await this.rpc.getTransaction(signature as any, {
+      encoding: "jsonParsed",
+      maxSupportedTransactionVersion: 0,
+    }).send() as any;
+
+    if (!txn || !txn.transaction || !txn.meta) return null;
+
+    const parsedTxn = txn.transaction as unknown as ParsedTransactionWithMeta["transaction"];
+    const meta = txn.meta as unknown as ParsedTransactionWithMeta["meta"];
+    const slot = Number(txn.slot);
+    const parsedTransaction = parsedTxn as unknown as ParsedTransaction;
+    const parsedMeta = meta as unknown as ParsedTransactionMeta;
+    const blockHash = (parsedTransaction as any).message?.recentBlockhash ?? "";
+    const blockTime = txn.blockTime ? Number(txn.blockTime) : null;
+
+    if (!hasMessage(parsedTransaction)) {
+      return null;
+    }
+
+    let events: EventInfo[] = [];
+    if (includeEvents && options.eventFilter) {
+      events = collectWith<EventInfo>(
+        { transaction: parsedTransaction, meta: parsedMeta },
+        options.eventFilter,
+        ({ index, programId, instr }) => {
+          if (isPartiallyDecodedInstruction(instr)) {
+            const programIdl = options.eventFilter?.programIdls?.get(programId);
+            const decoded = decodeEvent(instr.data, programId, programIdl);
+            return decoded ? { index, programId, event: decoded } : null;
+          }
+          return null;
+        },
+      );
+    }
+
+    let instructions: InstructionInfo[] = [];
+    if (includeInstructions) {
+      const instructionFilter = options.instructionFilter ?? { programIds: [] };
+      instructions = collectWith<InstructionInfo>(
+        { transaction: parsedTransaction, meta: parsedMeta },
+        instructionFilter,
+        ({ index, programId, instr }) => {
+          if (isParsedInstruction(instr)) {
+            return { index, programId, parsed: instr.parsed };
+          }
+          if (isPartiallyDecodedInstruction(instr) && instructionFilter.programIdls) {
+            const programIdl = instructionFilter.programIdls.get(programId);
+            const decoded = decodeInstruction(instr.data, programId, programIdl);
+            return decoded == null ? null : { index, programId, parsed: decoded };
+          }
+          return null;
+        },
+      );
+    }
+
+    return {
+      block_number: slot,
+      block_hash: blockHash,
+      block_ts: blockTime,
+      txn_hash: signature,
+      instructions: includeInstructions ? instructions : [],
+      events: includeEvents ? events : [],
+    };
   }
 
   // --- Shared helpers are in utils/block.ts ---

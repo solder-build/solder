@@ -12,7 +12,9 @@ async function main() {
     rpcUrl: "https://solder-solanam-6597.mainnet.rpcpool.com/3b46c479-63d2-4713-8555-49171bd416eb",
     databaseUrl: "postgresql://postgres:password123@127.0.0.1:6500/app",
     cursorKey: "my-indexer-2",
-    enableUIProgress: true,
+    useTransactionHistory: true,
+    signatureBatchSize: 500,
+    // enableUIProgress: true,
   });
 
   console.log("📝 Registering event handlers...");
@@ -22,7 +24,7 @@ async function main() {
     idl: PumpFunIdl,
     eventName: "TradeEvent",
     handler: async (event) => {
-      console.log("Event parsed:", event);
+      // console.log("Event parsed:", event);
     },
   });
 
