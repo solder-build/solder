@@ -9,7 +9,6 @@ export type ProgressEventStat = {
 };
 
 export type ProgressUiState = {
-  chain: string;
   status: string;
   block: number;
   rps: number;
@@ -61,7 +60,7 @@ export class ProgressUiController {
   };
   private realtimeSlot: number | null = null;
 
-  constructor(private readonly chain: string = 'Solana') {}
+  constructor() {}
 
   initialize(startSlot: number, latestSlot: number): void {
     this.state.startSlot = startSlot;
@@ -107,7 +106,6 @@ export class ProgressUiController {
     const websocketConnected = source.websocketActive ? source.wsHealthy : false;
 
     return {
-      chain: this.chain,
       status: source.isRunning ? 'Running' : 'Stopped',
       block: source.currentSlot,
       rps,

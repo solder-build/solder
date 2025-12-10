@@ -275,7 +275,7 @@ export class Indexer {
     const latestSlot = Number(await this.rpcClient.getSlot());
 
     if (this.enableUIProgress) {
-      this.progressUi = new ProgressUiController('Solana');
+      this.progressUi = new ProgressUiController();
       this.progressUi.initialize(this.currentSlot, latestSlot);
       if (this.latestRealtimeSlot !== null) {
         this.progressUi.recordRealtimeSlot(this.latestRealtimeSlot);
