@@ -1,6 +1,7 @@
 import { RpcClient } from "../rpc/rpc";
 import type { BlockTransactionInfo, BlockInfoResult, EventFilterOptions, InstructionFilterOptions } from "../types/block";
 import { DecodedEvent, isLegacyIdl } from "../idl/idl";
+import { ProgressUiController } from "../ui/progress";
 import { CursorStore } from "./db";
 import { drizzle, NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -36,7 +37,6 @@ type BlockProcessingContext = {
 export class Indexer {
   private readonly HISTORICAL_CHUNK_SIZE = 50;
   private readonly HISTORICAL_CONCURRENCY = 10;
-  private readonly HISTORICAL_HEADROOM = 2;
 
   private readonly rpcClient: RpcClient;
   private registeredPrograms: Map<string, RegisteredProgram> = new Map();
@@ -51,17 +51,11 @@ export class Indexer {
     | (NodePgDatabase<Record<string, never>> & { $client: Pool })
     | null = null;
   private uiShutdown?: () => void;
-  private progressState = {
-    requestTimestamps: [] as number[],
-    eventStats: new Map<string, { count: number; totalDuration: number; contractAddress: string }>(),
-    startSlot: 0,
-    latestSlot: 0,
-    startTime: 0,
-  };
-
   private websocketChannel?: WebSocketChannel;
   private websocketSubscription?: WebSocketSubscription<BlockNotificationPayload>;
   private wsHealthy = false;
+  private latestRealtimeSlot: number | null = null;
+  private progressUi?: ProgressUiController;
   private wsUrl: string;
 
   constructor(config: IndexerConfig) {
@@ -275,17 +269,28 @@ export class Indexer {
     }
 
     this.isRunning = true;
+    this.latestRealtimeSlot = null;
 
     // Initialize progress state
     const latestSlot = Number(await this.rpcClient.getSlot());
-    this.progressState.startSlot = this.currentSlot;
-    this.progressState.startTime = Date.now();
-    this.progressState.latestSlot = latestSlot;
 
-    // Setup UI if enabled
     if (this.enableUIProgress) {
-      const { setupProgressUi } = await import('../ui/progress.js');
-      this.uiShutdown = setupProgressUi(() => this.getProgressUiState());
+      this.progressUi = new ProgressUiController('Solana');
+      this.progressUi.initialize(this.currentSlot, latestSlot);
+      if (this.latestRealtimeSlot !== null) {
+        this.progressUi.recordRealtimeSlot(this.latestRealtimeSlot);
+      }
+      this.uiShutdown = ProgressUiController.setup(() =>
+        this.progressUi!.buildState({
+          isRunning: this.isRunning,
+          currentSlot: this.currentSlot,
+          hasDatabase: this.db !== null,
+          wsHealthy: this.wsHealthy,
+          websocketActive: !!this.websocketChannel,
+        }),
+      );
+    } else {
+      this.progressUi = undefined;
     }
 
     // Initialize cursor store if available
@@ -394,6 +399,8 @@ export class Indexer {
 
       await this.handleBlockData(slot, blockInfo, context);
       this.currentSlot = Math.max(this.currentSlot, slot + 1);
+      this.latestRealtimeSlot = slot;
+      this.progressUi?.recordRealtimeSlot(slot);
     } catch (error) {
       console.error("[Indexer] Failed to process websocket block:", error);
     }
@@ -437,18 +444,7 @@ export class Indexer {
           const startTime = performance.now();
           await this.handleEvent(eventInfo, transaction);
           const duration = performance.now() - startTime;
-          const key = `${eventInfo.programId}-${eventInfo.event.name}`;
-          const existing = this.progressState.eventStats.get(key);
-          if (existing) {
-            existing.count++;
-            existing.totalDuration += duration;
-          } else {
-            this.progressState.eventStats.set(key, {
-              count: 1,
-              totalDuration: duration,
-              contractAddress: eventInfo.programId.slice(0, 16),
-            });
-          }
+            this.progressUi?.recordEvent(eventInfo.programId, eventInfo.event.name, duration);
         }
       }
     }
@@ -492,10 +488,7 @@ export class Indexer {
         slotsToFetch,
         async (slot) => {          
           // Track RPC request for progress tracking (per block fetch)
-          this.progressState.requestTimestamps.push(Date.now());
-          if (this.progressState.requestTimestamps.length > 100) {
-            this.progressState.requestTimestamps.shift(); // keep last 100
-          }
+          this.progressUi?.recordRequest();
 
           try {
             const blockInfo = await this.rpcClient.getBlockInfo(slot, {
@@ -751,61 +744,4 @@ export class Indexer {
     this.websocketSubscription?.on("close", onClose);
   }
 
-  private getProgressUiState(): any {
-    const now = Date.now();
-    const rps = this.calculateRPS(now);
-    const progress = this.calculateProgress();
-    const eta = this.calculateETA(rps, progress);
-
-    return {
-      chain: 'Solana',
-      status: this.isRunning ? 'Running' : 'Stopped',
-      block: this.currentSlot,
-      rps,
-      percent: progress,
-      eta,
-      mode: this.currentSlot >= this.progressState.latestSlot ? 'live' : 'historical',
-      events: Array.from(this.progressState.eventStats.entries()).map(([name, stats]) => ({
-        eventName: name,
-        count: stats.count,
-        averageDuration: stats.count > 0 ? stats.totalDuration / stats.count : 0,
-        contractAddress: stats.contractAddress,
-      })),
-      health: {
-        database: this.db !== null,
-        ws: this.websocketChannel ? this.wsHealthy : true,
-        rpc: true,
-      },
-    };
-  }
-
-  private calculateRPS(now: number): number {
-    const recentRequests = this.progressState.requestTimestamps.filter(
-      ts => now - ts < 10000 // last 10 seconds
-    );
-    return recentRequests.length / 10;
-  }
-
-  private calculateProgress(): number {
-    if (this.progressState.latestSlot === 0) return 0;
-    const total = this.progressState.latestSlot - this.progressState.startSlot;
-    const current = this.currentSlot - this.progressState.startSlot;
-
-    // If we're doing historical sync and have processed a reasonable amount,
-    // show some progress even if it's very small
-    if (total > 1000000 && current > 100) {
-      // For very large historical syncs, show progress based on time elapsed
-      const timeElapsed = Date.now() - this.progressState.startTime;
-      const estimatedTotalTime = timeElapsed * (total / current);
-      return Math.min(0.99, timeElapsed / estimatedTotalTime);
-    }
-
-    return Math.min(1, current / total);
-  }
-
-  private calculateETA(rps: number, progress: number): number {
-    if (rps === 0 || progress >= 1) return 0;
-    const remaining = this.progressState.latestSlot - this.currentSlot;
-    return remaining / rps;
-  }
 }
