@@ -8,10 +8,124 @@ import {
 } from "@solana/web3.js";
 import { createSolanaRpc } from "@solana/rpc";
 import { fromLegacyPublicKey } from "@solana/compat";
+import { decodeEvent, decodeInstruction } from "../idl/idl";
+import type {
+  BlockInfoResult,
+  BlockTransactionInfo,
+  EventFilterOptions,
+  EventInfo,
+  InstructionFilterOptions,
+  InstructionInfo,
+} from "../types/block";
 
 export type ParsedBlockTx =
   | NonNullable<ParsedBlockResponse["transactions"]>[number]
   | NonNullable<ParsedAccountsModeBlockResponse["transactions"]>[number];
+
+export function hasMessage(tx: ParsedBlockTx["transaction"]): tx is ParsedTransaction {
+  return (tx as ParsedTransaction).message !== undefined;
+}
+
+type BlockLike = {
+  transactions?: unknown;
+};
+
+type BuildTransactionsParams = {
+  block: BlockLike;
+  slot: number;
+  blockHash: string;
+  blockTime: number | null;
+  includeEvents: boolean;
+  includeInstructions: boolean;
+  eventFilter?: EventFilterOptions;
+  instructionFilter?: InstructionFilterOptions;
+};
+
+export function buildBlockTransactionsFromParsedBlock({
+  block,
+  slot,
+  blockHash,
+  blockTime,
+  includeEvents,
+  includeInstructions,
+  eventFilter,
+  instructionFilter,
+}: BuildTransactionsParams): BlockTransactionInfo[] {
+  const parsedTransactions = block.transactions as ParsedBlockTx[] | undefined;
+  if (!parsedTransactions?.length) {
+    return [];
+  }
+
+  const results: BlockTransactionInfo[] = [];
+
+  for (const txn of parsedTransactions) {
+    if (!txn?.transaction || !txn.meta) {
+      continue;
+    }
+
+    const signatures = txn.transaction.signatures;
+    const signature = signatures?.[0];
+    const hasTxnMessage = hasMessage(txn.transaction);
+
+    let events: EventInfo[] = [];
+
+    if (includeEvents && eventFilter && hasTxnMessage) {
+      events = collectWith<EventInfo>(
+        { transaction: txn.transaction as ParsedTransaction, meta: txn.meta },
+        eventFilter,
+        ({ index, programId, instr }) => {
+          if (isPartiallyDecodedInstruction(instr)) {
+            const programIdl = eventFilter.programIdls?.get(programId);
+            const decoded = decodeEvent(instr.data, programId, programIdl);
+            return decoded ? { index, programId, event: decoded } : null;
+          }
+          return null;
+        },
+      );
+    }
+
+    let instructions: InstructionInfo[] = [];
+    if (includeInstructions && hasTxnMessage) {
+      const resolvedFilter = instructionFilter ?? { programIds: [] };
+      instructions = collectWith<InstructionInfo>(
+        { transaction: txn.transaction as ParsedTransaction, meta: txn.meta },
+        resolvedFilter,
+        ({ index, programId, instr }) => {
+          if (isParsedInstruction(instr)) {
+            return { index, programId, parsed: instr.parsed };
+          }
+          if (isPartiallyDecodedInstruction(instr) && resolvedFilter.programIdls) {
+            const programIdl = resolvedFilter.programIdls.get(programId);
+            const decoded = decodeInstruction(instr.data, programId, programIdl);
+            return decoded == null ? null : { index, programId, parsed: decoded };
+          }
+          return null;
+        },
+      );
+    }
+
+    results.push({
+      block_number: slot,
+      block_hash: blockHash,
+      block_ts: blockTime,
+      txn_hash: signature,
+      instructions: includeInstructions ? instructions : [],
+      events: includeEvents ? events : [],
+    });
+  }
+
+  return results;
+}
+
+export function buildBlockInfoResult(params: BuildTransactionsParams): BlockInfoResult {
+  const transactions = buildBlockTransactionsFromParsedBlock(params);
+  return {
+    block_number: params.slot,
+    block_hash: params.blockHash,
+    block_time: params.blockTime,
+    transactions,
+  };
+}
 
 export function isParsedInstruction(
   instr: ParsedInstruction | PartiallyDecodedInstruction,
@@ -38,7 +152,7 @@ export async function fetchParsedBlock(
 }> {
   const response = await rpc.getBlock(BigInt(slot), {
     encoding: "jsonParsed",
-    transactionDetails: "accounts",
+    transactionDetails: "full",
     maxSupportedTransactionVersion: 0,
     rewards: false,
   }).send();

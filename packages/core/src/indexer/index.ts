@@ -2,6 +2,7 @@ export { Indexer } from "./indexer";
 
 export type {
   IndexerConfig,
+  WebsocketConfig,
   RegisteredProgram,
   EventHandler,
   OnEventConfig,

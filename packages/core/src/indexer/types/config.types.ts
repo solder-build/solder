@@ -7,10 +7,15 @@ import type {
 } from "../../idl/idl-types";
 import type { LegacyEventType, LegacyIdl } from "../../idl/legacy-idl-types";
 
+export interface WebsocketConfig {
+  url: string;
+}
+
 export interface IndexerConfig {
   startBlock: number;
-  rpcUrl?: string;
-  databaseUrl?: string; 
+  rpcUrl: string;
+  wsUrl: string;
+  databaseUrl: string; 
   cursorKey?: string; 
   enableUIProgress?: boolean; 
 }

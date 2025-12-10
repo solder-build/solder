@@ -1,4 +1,5 @@
-import { RpcClient, type BlockTransactionInfo, type BlockInfoResult } from "../rpc/rpc";
+import { RpcClient } from "../rpc/rpc";
+import type { BlockTransactionInfo, BlockInfoResult, EventFilterOptions, InstructionFilterOptions } from "../types/block";
 import { DecodedEvent, isLegacyIdl } from "../idl/idl";
 import { CursorStore } from "./db";
 import { drizzle, NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -16,6 +17,13 @@ import type {
   TransactionHandler,
 } from "./types/config.types";
 import { parallelMap } from "../utils/async";
+import { buildBlockInfoResult } from "../utils/block";
+import {
+  WebSocketChannel,
+  type WebSocketSubscription,
+  type BlockNotificationPayload,
+  type BlockSubscribeConfig,
+} from "./channels/websocket-channel";
 
 type BlockProcessingContext = {
   programIds: string[];
@@ -51,18 +59,33 @@ export class Indexer {
     startTime: 0,
   };
 
+  private websocketChannel?: WebSocketChannel;
+  private websocketSubscription?: WebSocketSubscription<BlockNotificationPayload>;
+  private wsHealthy = false;
+  private wsUrl: string;
+
   constructor(config: IndexerConfig) {
-    this.rpcClient = new RpcClient({ endpoint: config.rpcUrl ?? "https://api.mainnet-beta.solana.com" });
-    this.currentSlot = config.startBlock;
-    this.cursorKey = config.cursorKey ?? "default";
-    this.enableUIProgress = config.enableUIProgress ?? false;
-    if (config.databaseUrl) {
-      const pool = new Pool({
-        connectionString: process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/postgres",
-      });
-      this.cursorStore = new CursorStore(config.databaseUrl);
-      this.db = drizzle({ client: pool });
-    }
+    const {
+      rpcUrl = "https://api.mainnet-beta.solana.com",
+      startBlock,
+      cursorKey = "default",
+      enableUIProgress = false,
+      databaseUrl,
+      wsUrl,
+    } = config;
+
+    this.rpcClient = new RpcClient({ endpoint: rpcUrl });
+    this.currentSlot = startBlock;
+    this.cursorKey = cursorKey;
+    this.enableUIProgress = enableUIProgress;
+    this.wsUrl = wsUrl;
+
+    const pool = new Pool({
+      connectionString: databaseUrl,
+    });
+
+    this.cursorStore = new CursorStore(databaseUrl);
+    this.db = drizzle({ client: pool });
   }
 
   /**
@@ -283,14 +306,18 @@ export class Indexer {
       );
     }
 
-    if (this.currentSlot < latestSlot - this.HISTORICAL_HEADROOM) {
-      await this.processHistoricalRange(this.currentSlot, latestSlot - this.HISTORICAL_HEADROOM);
-    }
+    await this.initializeRealtimeSync().catch((error) => {
+      console.error("Failed to initialize websocket channel, falling back to HTTP polling:", error);
+      return null;
+    });
+
+    const historicalTarget = Math.max(latestSlot - 1, this.currentSlot - 1);
 
     try {
-      await this.processBlocks();
+      if (this.currentSlot <= historicalTarget) {
+        await this.processHistoricalRange(this.currentSlot, historicalTarget);
+      }
     } catch (error) {
-      console.error("Indexer error:", error);
       this.isRunning = false;
       throw error;
     }
@@ -308,6 +335,20 @@ export class Indexer {
       this.uiShutdown = undefined;
     }
 
+    if (this.websocketSubscription) {
+      this.websocketSubscription.removeAllListeners();
+      this.websocketSubscription.unsubscribe().catch(() => {});
+      this.websocketSubscription = undefined;
+    }
+
+    if (this.websocketChannel) {
+      this.websocketChannel.disconnect();
+      this.websocketChannel.removeAllListeners();
+      this.websocketChannel = undefined;
+    }
+
+    this.wsHealthy = false;
+
     console.log("Indexer stopped");
     if (this.cursorStore) {
       this.cursorStore.close().catch(() => { });
@@ -315,63 +356,46 @@ export class Indexer {
   }
 
   /**
-   * Process blocks continuously
+   * Process a single block for registered programs and events
    */
-  private async processBlocks(): Promise<void> {
-    while (this.isRunning) {
-      try {
-        const latestSlot = Number(await this.rpcClient.getSlot());
-
-        if (this.currentSlot <= latestSlot) {
-          await this.processBlock(this.currentSlot);
-          this.currentSlot++;
-        } else {
-          // Wait a bit before checking for new blocks
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-        }
-      } catch (error) {
-        console.error(`Error processing block ${this.currentSlot}:`, error);
-        // Continue with next block
-        this.currentSlot++;
-      }
-    }
-  }
-
-  /**
- * Process a single block for registered programs and events
- */
-  private async processBlock(slot: number): Promise<void> {
-    // Track request for RPS calculation
-    this.progressState.requestTimestamps.push(Date.now());
-    if (this.progressState.requestTimestamps.length > 100) {
-      this.progressState.requestTimestamps.shift(); // keep last 100
-    }
-
+  private async processBlock(payload: BlockNotificationPayload): Promise<void> {
     const context = this.buildBlockProcessingContext();
-    if (!context.hasEventHandlers && !context.hasTransactionHandlers) {
-      console.log(`No programs registered, skipping block ${slot}`);
+    const slot = payload.value.slot ?? payload.context.slot;
+
+    if (
+      slot === undefined ||
+      slot === null ||
+      !payload.value.block ||
+      (!context.hasEventHandlers && !context.hasTransactionHandlers)
+    ) {
       return;
     }
 
+    const includeEvents = context.hasEventHandlers;
+    const includeInstructions = context.hasTransactionHandlers;
+    const eventFilter: EventFilterOptions | undefined = includeEvents
+      ? { programIds: context.programIds, programIdls: context.programIdls }
+      : undefined;
+    const instructionFilter: InstructionFilterOptions | undefined = includeInstructions
+      ? { programIds: context.txProgramIds, programIdls: context.programIdls }
+      : undefined;
+
     try {
-      const blockInfo = await this.rpcClient.getBlockInfo(slot, {
-        includeEvents: context.hasEventHandlers,
-        includeInstructions: context.hasTransactionHandlers,
-        eventFilter: context.hasEventHandlers
-          ? { programIds: context.programIds, programIdls: context.programIdls }
-          : undefined,
-        instructionFilter: context.hasTransactionHandlers
-          ? { programIds: context.txProgramIds, programIdls: context.programIdls }
-          : undefined,
+      const blockInfo = buildBlockInfoResult({
+        block: payload.value.block,
+        slot,
+        blockHash: payload.value.block.blockhash ?? "",
+        blockTime: payload.value.block.blockTime ?? null,
+        includeEvents,
+        includeInstructions,
+        eventFilter,
+        instructionFilter,
       });
 
-      if (!blockInfo) {
-        return;
-      }
-
       await this.handleBlockData(slot, blockInfo, context);
+      this.currentSlot = Math.max(this.currentSlot, slot + 1);
     } catch (error) {
-      console.error(`Error fetching block ${slot}:`, error);
+      console.error("[Indexer] Failed to process websocket block:", error);
     }
   }
 
@@ -456,9 +480,6 @@ export class Indexer {
       return;
     }
 
-    let lastLatestSlotUpdate = Date.now();
-    const LATEST_SLOT_UPDATE_INTERVAL = 5000; // Update latestSlot every 5 seconds
-
     for (let chunkStart = fromSlot; chunkStart <= toSlot; chunkStart += this.HISTORICAL_CHUNK_SIZE) {
       const chunkEnd = Math.min(chunkStart + this.HISTORICAL_CHUNK_SIZE - 1, toSlot);
       const slotsToFetch: number[] = [];
@@ -469,9 +490,7 @@ export class Indexer {
       const fetchStart = performance.now();
       const fetchedBlocks = await parallelMap(
         slotsToFetch,
-        async (slot) => {
-          const blockFetchStart = performance.now();
-          
+        async (slot) => {          
           // Track RPC request for progress tracking (per block fetch)
           this.progressState.requestTimestamps.push(Date.now());
           if (this.progressState.requestTimestamps.length > 100) {
@@ -489,12 +508,9 @@ export class Indexer {
                 ? { programIds: context.txProgramIds, programIdls: context.programIdls }
                 : undefined,
             });
-            const fetchDuration = performance.now() - blockFetchStart;
-            console.log(`[processHistoricalRange] Slot ${slot}: fetched in ${fetchDuration.toFixed(2)}ms ${blockInfo ? '✓' : '✗ (no block)'}`);
+
             return { slot, blockInfo };
           } catch (error) {
-            const fetchDuration = performance.now() - blockFetchStart;
-            console.error(`[processHistoricalRange] Slot ${slot}: error after ${fetchDuration.toFixed(2)}ms:`, error);
             return { slot, blockInfo: null };
           }
         },
@@ -505,7 +521,6 @@ export class Indexer {
       const validBlocks = fetchedBlocks.filter(r => r.blockInfo !== null);
       const processStart = performance.now();
       
-      // Process results in order
       let maxSlot = 0;
       for (const { slot, blockInfo } of fetchedBlocks) {
         if (blockInfo) {
@@ -517,7 +532,7 @@ export class Indexer {
 
       // Update currentSlot after processing chunk
       if (maxSlot > 0) {
-        this.currentSlot = maxSlot + 1;
+        this.currentSlot = Math.max(this.currentSlot, maxSlot + 1);
       }
 
       console.log(
@@ -525,30 +540,9 @@ export class Indexer {
         `fetched ${validBlocks.length}/${slotsToFetch.length} blocks in ${fetchDuration.toFixed(2)}ms, ` +
         `processed in ${processDuration.toFixed(2)}ms (total: ${(fetchDuration + processDuration).toFixed(2)}ms)`
       );
-
-      // Periodically refresh latestSlot to keep progress calculations accurate
-      const now = Date.now();
-      if (now - lastLatestSlotUpdate >= LATEST_SLOT_UPDATE_INTERVAL) {
-        try {
-          const latestSlot = Number(await this.rpcClient.getSlot());
-          this.progressState.latestSlot = latestSlot;
-          lastLatestSlotUpdate = now;
-        } catch (error) {
-          console.error("Error updating latest slot:", error);
-        }
-      }
     }
 
-    // Ensure currentSlot is set to the next slot after the range
-    this.currentSlot = toSlot + 1;
-    
-    // Final update of latestSlot before transitioning to real-time sync
-    try {
-      const latestSlot = Number(await this.rpcClient.getSlot());
-      this.progressState.latestSlot = latestSlot;
-    } catch (error) {
-      console.error("Error updating latest slot:", error);
-    }
+    this.currentSlot = Math.max(this.currentSlot, toSlot + 1);
   }
 
   /**
@@ -702,6 +696,61 @@ export class Indexer {
     };
   }
 
+  private async initializeRealtimeSync(): Promise<void> {
+    if (!this.wsUrl) {
+      return;
+    }
+
+    this.websocketChannel = new WebSocketChannel({
+      nodeUrl: this.wsUrl,
+      autoReconnect: true,
+      maxBufferSize: 1000,
+      requestTimeout: 60_000,
+    });
+
+    this.websocketChannel.on("open", () => {
+      this.wsHealthy = true;
+    });
+
+    this.websocketChannel.on("close", () => {
+      this.wsHealthy = false;
+    });
+
+    this.websocketChannel.on("error", (error) => {
+      console.error("[WebSocketChannel] error:", error);
+    });
+
+    await this.websocketChannel.waitForConnection();
+
+    this.websocketSubscription = await this.websocketChannel.subscribeNewHeads({
+      commitment: "finalized",
+      filter: { mentionsAccountOrProgram: this.getRegisteredProgramIds().join(",") },
+      showRewards: false,
+      encoding: "jsonParsed",
+      transactionDetails: "full",
+      maxSupportedTransactionVersion: 0,
+    });
+
+    const onData = (payload: BlockNotificationPayload) => {
+      if (!payload.context.slot) {
+        return;
+      }
+      this.processBlock(payload);
+    };
+
+    const onError = (error: Error) => {
+      console.error("[WebSocketSubscription] error:", error);
+    };
+
+    const onClose = () => {
+      console.warn("[WebSocketSubscription] closed");
+    };
+
+    this.websocketSubscription?.on("data", onData);
+    this.websocketSubscription?.on("error", onError);
+    this.websocketSubscription?.on("close", onClose);
+  }
+
   private getProgressUiState(): any {
     const now = Date.now();
     const rps = this.calculateRPS(now);
@@ -724,7 +773,7 @@ export class Indexer {
       })),
       health: {
         database: this.db !== null,
-        ws: false,
+        ws: this.websocketChannel ? this.wsHealthy : true,
         rpc: true,
       },
     };
