@@ -319,6 +319,7 @@ export class Indexer {
     const historicalTarget = Math.max(latestSlot - 1, this.currentSlot - 1);
 
     try {
+      this.progressUi?.recordHistoricalSlot(this.currentSlot);
       if (this.currentSlot <= historicalTarget) {
         await this.processHistoricalRange(this.currentSlot, historicalTarget);
       }
@@ -484,7 +485,7 @@ export class Indexer {
       }
 
       const fetchStart = performance.now();
-      const fetchedBlocks = await parallelMap(
+      await parallelMap(
         slotsToFetch,
         async (slot) => {          
           // Track RPC request for progress tracking (per block fetch)
@@ -502,36 +503,22 @@ export class Indexer {
                 : undefined,
             });
 
-            return { slot, blockInfo };
+            if (blockInfo) {
+              this.progressUi?.recordHistoricalSlot(slot);
+              await this.handleBlockData(slot, blockInfo, context);
+            }
           } catch (error) {
-            return { slot, blockInfo: null };
+            console.error("[Indexer] Failed to fetch block:", error);
           }
         },
         this.HISTORICAL_CONCURRENCY
       );
+
       const fetchDuration = performance.now() - fetchStart;
-
-      const validBlocks = fetchedBlocks.filter(r => r.blockInfo !== null);
-      const processStart = performance.now();
-      
-      let maxSlot = 0;
-      for (const { slot, blockInfo } of fetchedBlocks) {
-        if (blockInfo) {
-          await this.handleBlockData(slot, blockInfo, context);
-        }
-        maxSlot = Math.max(maxSlot, slot);
-      }
-      const processDuration = performance.now() - processStart;
-
-      // Update currentSlot after processing chunk
-      if (maxSlot > 0) {
-        this.currentSlot = Math.max(this.currentSlot, maxSlot + 1);
-      }
 
       console.log(
         `[processHistoricalRange] Chunk slots ${chunkStart}-${chunkEnd}: ` +
-        `fetched ${validBlocks.length}/${slotsToFetch.length} blocks in ${fetchDuration.toFixed(2)}ms, ` +
-        `processed in ${processDuration.toFixed(2)}ms (total: ${(fetchDuration + processDuration).toFixed(2)}ms)`
+        `fetched ${slotsToFetch.length} blocks in ${fetchDuration.toFixed(2)}ms`
       );
     }
 
@@ -690,10 +677,6 @@ export class Indexer {
   }
 
   private async initializeRealtimeSync(): Promise<void> {
-    if (!this.wsUrl) {
-      return;
-    }
-
     this.websocketChannel = new WebSocketChannel({
       nodeUrl: this.wsUrl,
       autoReconnect: true,
@@ -716,7 +699,7 @@ export class Indexer {
     await this.websocketChannel.waitForConnection();
 
     this.websocketSubscription = await this.websocketChannel.subscribeNewHeads({
-      commitment: "finalized",
+      commitment: "confirmed",
       filter: { mentionsAccountOrProgram: this.getRegisteredProgramIds().join(",") },
       showRewards: false,
       encoding: "jsonParsed",

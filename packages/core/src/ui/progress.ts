@@ -40,6 +40,7 @@ export type ProgressState = {
   startSlot: number;
   latestSlot: number;
   startTime: number;
+  historicalSlot: number;
 };
 
 export type ProgressUiSource = {
@@ -57,6 +58,7 @@ export class ProgressUiController {
     startSlot: 0,
     latestSlot: 0,
     startTime: 0,
+    historicalSlot: 0,
   };
   private realtimeSlot: number | null = null;
 
@@ -66,6 +68,7 @@ export class ProgressUiController {
     this.state.startSlot = startSlot;
     this.state.latestSlot = latestSlot;
     this.state.startTime = Date.now();
+    this.state.historicalSlot = startSlot;
   }
 
   updateLatestSlot(latestSlot: number): void {
@@ -94,6 +97,10 @@ export class ProgressUiController {
     }
   }
 
+  recordHistoricalSlot(slot: number): void {
+    this.state.historicalSlot = slot;
+  }
+
   recordRealtimeSlot(slot: number): void {
     this.realtimeSlot = slot;
   }
@@ -101,17 +108,18 @@ export class ProgressUiController {
   buildState(source: ProgressUiSource): ProgressUiState {
     const now = Date.now();
     const rps = this.calculateRPS(now);
-    const percent = this.calculateProgress(source.currentSlot);
-    const eta = this.calculateETA(rps, percent, source.currentSlot);
+    const currentHistoricalSlot = this.state.historicalSlot ?? source.currentSlot;
+    const percent = this.calculateProgress(currentHistoricalSlot);
+    const eta = this.calculateETA(rps, percent, currentHistoricalSlot);
     const websocketConnected = source.websocketActive ? source.wsHealthy : false;
 
     return {
       status: source.isRunning ? 'Running' : 'Stopped',
-      block: source.currentSlot,
+      block: currentHistoricalSlot,
       rps,
       percent,
       eta,
-      mode: source.currentSlot >= this.state.latestSlot ? 'live' : 'historical',
+      mode: currentHistoricalSlot >= this.state.latestSlot ? 'live' : 'historical',
       events: Array.from(this.state.eventStats.entries()).map(([name, stats]) => ({
         eventName: name,
         count: stats.count,
@@ -120,7 +128,7 @@ export class ProgressUiController {
       })),
       streams: {
         historical: {
-          slot: source.currentSlot,
+          slot: currentHistoricalSlot,
           targetSlot: this.state.latestSlot,
           rps,
         },
