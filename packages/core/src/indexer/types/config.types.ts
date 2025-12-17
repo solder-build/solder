@@ -6,6 +6,7 @@ import type {
   InstructionNames,
 } from "../../idl/idl-types";
 import type { LegacyEventType, LegacyIdl } from "../../idl/legacy-idl-types";
+import type { Logger } from "../../utils/logger";
 
 export interface WebsocketConfig {
   url: string;
@@ -17,7 +18,8 @@ export interface IndexerConfig {
   wsUrl: string;
   databaseUrl: string; 
   cursorKey?: string; 
-  enableUIProgress?: boolean; 
+  enableUIProgress?: boolean;
+  logger?: Logger;
 }
 
 export interface RegisteredProgram {

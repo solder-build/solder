@@ -24,6 +24,7 @@ import {
   type WebSocketSubscription,
   type BlockNotificationPayload,
 } from "./channels/websocket-channel";
+import { defaultLogger, type Logger } from "../utils/logger";
 
 type BlockProcessingContext = {
   programIds: string[];
@@ -58,6 +59,7 @@ export class Indexer {
   private historicalSyncComplete = false;
   private progressUi?: ProgressUiController;
   private wsUrl: string;
+  private logger: Logger;
 
   constructor(config: IndexerConfig) {
     const {
@@ -67,6 +69,7 @@ export class Indexer {
       enableUIProgress = false,
       databaseUrl,
       wsUrl,
+      logger = defaultLogger,
     } = config;
 
     this.rpcClient = new RpcClient({ endpoint: rpcUrl });
@@ -74,6 +77,7 @@ export class Indexer {
     this.cursorKey = cursorKey;
     this.enableUIProgress = enableUIProgress;
     this.wsUrl = wsUrl;
+    this.logger = logger;
 
     const pool = new Pool({
       connectionString: databaseUrl,
@@ -100,7 +104,7 @@ export class Indexer {
       eventTypes,
       idl,
     });
-    console.log(
+    this.logger.info(
       `Registered program ${programId} with event types:`,
       eventTypes,
     );
@@ -187,19 +191,19 @@ export class Indexer {
         !existingProgram.eventTypes.includes(config.eventName)
       ) {
         existingProgram.eventTypes.push(config.eventName);
-        console.log(
+        this.logger.info(
           `Added event type ${config.eventName} to existing program ${config.programId}`,
         );
       }
     }
 
-    console.log(
+    this.logger.info(
       `Registered event handler for ${config.eventName} on program ${config.programId}`,
     );
 
     return () => {
       this.eventHandlers.delete(handlerId);
-      console.log(
+      this.logger.info(
         `Removed event handler for ${config.eventName} on program ${config.programId}`,
       );
     };
@@ -232,11 +236,11 @@ export class Indexer {
 
     this.transactionHandlers.set(handlerId, transactionHandler);
 
-    console.log(`Registered transaction handler for program ${config.programId}`);
+    this.logger.info(`Registered transaction handler for program ${config.programId}`);
 
     return () => {
       this.transactionHandlers.delete(handlerId);
-      console.log(`Removed transaction handler for program ${config.programId}`);
+      this.logger.info(`Removed transaction handler for program ${config.programId}`);
     };
   }
 
@@ -257,7 +261,7 @@ export class Indexer {
       .map(([id, _]) => id);
 
     handlersToRemove.forEach((id) => this.eventHandlers.delete(id));
-    console.log(
+    this.logger.info(
       `Removed ${handlersToRemove.length} event handlers for program ${programId}`,
     );
   }
@@ -282,7 +286,7 @@ export class Indexer {
    */
   async start(): Promise<void> {
     if (this.isRunning) {
-      console.log("Indexer is already running");
+      this.logger.info("Indexer is already running");
       return;
     }
 
@@ -323,22 +327,21 @@ export class Indexer {
       }
     }
 
-    console.log(`Starting indexer from block ${this.currentSlot}`);
-    console.log(`Monitoring programs:`, this.getRegisteredProgramIds());
+    this.logger.info(`Starting indexer from block ${this.currentSlot}`);
     if (this.transactionHandlers.size > 0) {
-      console.log(
+      this.logger.info(
         `Monitoring all transactions (${this.transactionHandlers.size} handler(s))`,
       );
     }
 
     await this.initializeRealtimeSync().catch((error) => {
-      console.error("Failed to initialize websocket channel, falling back to HTTP polling:", error);
+      this.logger.error("Failed to initialize websocket channel, falling back to HTTP polling:", error);
       return null;
     });
 
     // Wait for first realtime block to establish historical target
     if (this.websocketSubscription) {
-      console.log("⏳ Waiting for first realtime block to establish sync boundary...");
+      this.logger.info("⏳ Waiting for first realtime block to establish sync boundary...");
       await this.waitForFirstRealtimeBlock();
     }
 
@@ -350,11 +353,11 @@ export class Indexer {
     try {
       this.progressUi?.recordHistoricalSlot(this.currentSlot);
       if (this.currentSlot <= historicalTarget) {
-        console.log(`📚 Starting historical sync: ${this.currentSlot} → ${historicalTarget}`);
+        this.logger.info(`📚 Starting historical sync: ${this.currentSlot} → ${historicalTarget}`);
         await this.processHistoricalRange(this.currentSlot, historicalTarget);
-        console.log(`✅ Historical sync complete. Now processing realtime stream.`);
+        this.logger.info(`✅ Historical sync complete. Now processing realtime stream.`);
       } else {
-        console.log(`✅ Already caught up. Processing realtime stream only.`);
+        this.logger.info(`✅ Already caught up. Processing realtime stream only.`);
       }
 
       // Mark historical sync as complete so realtime processing can advance currentSlot
@@ -393,7 +396,7 @@ export class Indexer {
 
     this.wsHealthy = false;
 
-    console.log("Indexer stopped");
+    this.logger.info("Indexer stopped");
     if (this.cursorStore) {
       this.cursorStore.close().catch(() => { });
     }
@@ -442,7 +445,7 @@ export class Indexer {
     // Record the first realtime slot as anchor point
     if (this.firstRealtimeSlot === null) {
       this.firstRealtimeSlot = slot;
-      console.log(`🎯 First realtime block received at slot ${slot}`);
+      this.logger.info(`🎯 First realtime block received at slot ${slot}`);
     }
 
     const includeEvents = context.hasEventHandlers;
@@ -497,7 +500,7 @@ export class Indexer {
         await this.cursorStore.recordBlock(this.cursorKey, storedBlock);
       }
     } catch (error) {
-      console.error("[Indexer] Failed to process websocket block:", error);
+      this.logger.error("[Indexer] Failed to process websocket block:", error);
     }
   }
 
@@ -562,7 +565,7 @@ export class Indexer {
       try {
         await this.cursorStore.recordBlock(this.cursorKey, storedBlock);
       } catch (error) {
-        console.error("[Indexer] Failed to record block:", error);
+        this.logger.error("[Indexer] Failed to record block:", error);
       }
     }
   }
@@ -582,7 +585,7 @@ export class Indexer {
       const chunkEnd = Math.min(chunkStart + this.HISTORICAL_CHUNK_SIZE - 1, toSlot);
       const slotsToFetch: number[] = [];
       for (let slot = chunkStart; slot <= chunkEnd; slot++) {
-        if (this.cursorStore && slot) {
+        if (this.cursorStore) {
           const existing = await this.cursorStore.checkIsBlockIndexed(this.cursorKey, slot);
           if (existing) {
             continue;
@@ -621,7 +624,7 @@ export class Indexer {
               });
             }
           } catch (error) {
-            console.error("[Indexer] Failed to fetch block:", error);
+            this.logger.error("[Indexer] Failed to fetch block:", error);
           }
         },
         this.HISTORICAL_CONCURRENCY
@@ -659,13 +662,13 @@ export class Indexer {
               );
               this.currentSlot = lastContiguousSlot + 1;
             } catch (error) {
-              console.error(`[Indexer] Failed to update cursor for slot ${lastContiguousSlot}:`, error);
+              this.logger.error(`[Indexer] Failed to update cursor for slot ${lastContiguousSlot}:`, error);
             }
           }
         }
       }
 
-      console.log(
+      this.logger.info(
         `[processHistoricalRange] Chunk slots ${chunkStart}-${chunkEnd}: ` +
         `fetched ${slotsToFetch.length} blocks in ${fetchDuration.toFixed(2)}ms`
       );
@@ -731,7 +734,7 @@ export class Indexer {
         }
         await handler.handler(transactionData, this.db);
       } catch (error) {
-        console.error(`Error in transaction handler:`, error);
+        this.logger.error(`Error in transaction handler:`, error);
       }
     }
   }
@@ -804,7 +807,7 @@ export class Indexer {
         }
         await handler.handler(eventData as any, this.db);
       } catch (error) {
-        console.error(
+        this.logger.error(
           `Error in event handler for ${eventName} on ${programId}:`,
           error,
         );
@@ -846,7 +849,7 @@ export class Indexer {
     });
 
     this.websocketChannel.on("error", (error) => {
-      console.error("[WebSocketChannel] error:", error);
+      this.logger.error("[WebSocketChannel] error:", error);
     });
 
     await this.websocketChannel.waitForConnection();
@@ -868,11 +871,11 @@ export class Indexer {
     };
 
     const onError = (error: Error) => {
-      console.error("[WebSocketSubscription] error:", error);
+      this.logger.error("[WebSocketSubscription] error:", error);
     };
 
     const onClose = () => {
-      console.warn("[WebSocketSubscription] closed");
+      this.logger.warn("[WebSocketSubscription] closed");
     };
 
     this.websocketSubscription?.on("data", onData);
