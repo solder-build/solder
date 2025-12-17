@@ -2,7 +2,7 @@ import { RpcClient } from "../rpc/rpc";
 import type { BlockTransactionInfo, BlockInfoResult, EventFilterOptions, InstructionFilterOptions } from "../types/block";
 import { DecodedEvent, isLegacyIdl } from "../idl/idl";
 import { ProgressUiController } from "../ui/progress";
-import { CursorStore } from "./db";
+import { CursorStore, type StoredBlock, type StoredEvent } from "./db";
 import { drizzle, NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import type { AnchorIdl } from "../idl/idl-types";
@@ -23,7 +23,6 @@ import {
   WebSocketChannel,
   type WebSocketSubscription,
   type BlockNotificationPayload,
-  type BlockSubscribeConfig,
 } from "./channels/websocket-channel";
 
 type BlockProcessingContext = {
@@ -55,6 +54,8 @@ export class Indexer {
   private websocketSubscription?: WebSocketSubscription<BlockNotificationPayload>;
   private wsHealthy = false;
   private latestRealtimeSlot: number | null = null;
+  private firstRealtimeSlot: number | null = null; // Anchor point for historical sync
+  private historicalSyncComplete = false;
   private progressUi?: ProgressUiController;
   private wsUrl: string;
 
@@ -78,7 +79,9 @@ export class Indexer {
       connectionString: databaseUrl,
     });
 
-    this.cursorStore = new CursorStore(databaseUrl);
+    if (databaseUrl) {
+      this.cursorStore = new CursorStore(databaseUrl);
+    }
     this.db = drizzle({ client: pool });
   }
 
@@ -261,6 +264,21 @@ export class Indexer {
 
   /**
    * Start the indexer to process blocks from the configured start block
+   * 
+   * Resumption Algorithm:
+   * 1. Connect WebSocket and wait for first realtime block (the "anchor")
+   * 2. Historical sync: last_checkpoint → (anchor - 1)
+   * 3. Continue with realtime stream from anchor onwards
+   * 
+   * This ensures no gaps:
+   * - WebSocket gives us everything >= anchor
+   * - Historical backfills everything < anchor
+   * - Deduplication via processed_events prevents double-processing
+   * 
+   * On crash/restart:
+   * - New anchor established from current chain tip
+   * - Historical resumes from last checkpoint
+   * - Overlapping blocks safely deduplicated
    */
   async start(): Promise<void> {
     if (this.isRunning) {
@@ -270,6 +288,8 @@ export class Indexer {
 
     this.isRunning = true;
     this.latestRealtimeSlot = null;
+    this.firstRealtimeSlot = null;
+    this.historicalSyncComplete = false;
 
     // Initialize progress state
     const latestSlot = Number(await this.rpcClient.getSlot());
@@ -297,7 +317,7 @@ export class Indexer {
     if (this.cursorStore) {
       await this.cursorStore.connect();
       await this.cursorStore.init();
-      const existing = await this.cursorStore.getCursor(this.cursorKey);
+      const existing = await this.cursorStore.getCursor(this.cursorKey, "historical");
       if (existing && existing.last_slot > 0) {
         this.currentSlot = existing.last_slot + 1; // resume from next slot
       }
@@ -316,13 +336,29 @@ export class Indexer {
       return null;
     });
 
-    const historicalTarget = Math.max(latestSlot - 1, this.currentSlot - 1);
+    // Wait for first realtime block to establish historical target
+    if (this.websocketSubscription) {
+      console.log("⏳ Waiting for first realtime block to establish sync boundary...");
+      await this.waitForFirstRealtimeBlock();
+    }
+
+    // Historical sync target: up to (firstRealtimeSlot - 1) or current chain tip
+    const historicalTarget = this.firstRealtimeSlot 
+      ? this.firstRealtimeSlot - 1 
+      : Math.max(latestSlot - 1, this.currentSlot - 1);
 
     try {
       this.progressUi?.recordHistoricalSlot(this.currentSlot);
       if (this.currentSlot <= historicalTarget) {
+        console.log(`📚 Starting historical sync: ${this.currentSlot} → ${historicalTarget}`);
         await this.processHistoricalRange(this.currentSlot, historicalTarget);
+        console.log(`✅ Historical sync complete. Now processing realtime stream.`);
+      } else {
+        console.log(`✅ Already caught up. Processing realtime stream only.`);
       }
+
+      // Mark historical sync as complete so realtime processing can advance currentSlot
+      this.historicalSyncComplete = true;
     } catch (error) {
       this.isRunning = false;
       throw error;
@@ -334,6 +370,8 @@ export class Indexer {
    */
   stop(): void {
     this.isRunning = false;
+    this.firstRealtimeSlot = null; // Reset anchor on stop
+    this.historicalSyncComplete = false; // Reset for next run
 
     // Shutdown UI if it was enabled
     if (this.uiShutdown) {
@@ -362,6 +400,30 @@ export class Indexer {
   }
 
   /**
+   * Wait for the first realtime block to establish the historical sync boundary
+   */
+  private async waitForFirstRealtimeBlock(): Promise<void> {
+    if (this.firstRealtimeSlot !== null) {
+      return; // Already received
+    }
+
+    return new Promise((resolve) => {
+      const checkInterval = setInterval(() => {
+        if (this.firstRealtimeSlot !== null) {
+          clearInterval(checkInterval);
+          resolve();
+        }
+      }, 100);
+
+      // Timeout after 10 seconds
+      setTimeout(() => {
+        clearInterval(checkInterval);
+        resolve();
+      }, 10_000);
+    });
+  }
+
+  /**
    * Process a single block for registered programs and events
    */
   private async processBlock(payload: BlockNotificationPayload): Promise<void> {
@@ -375,6 +437,12 @@ export class Indexer {
       (!context.hasEventHandlers && !context.hasTransactionHandlers)
     ) {
       return;
+    }
+
+    // Record the first realtime slot as anchor point
+    if (this.firstRealtimeSlot === null) {
+      this.firstRealtimeSlot = slot;
+      console.log(`🎯 First realtime block received at slot ${slot}`);
     }
 
     const includeEvents = context.hasEventHandlers;
@@ -399,9 +467,35 @@ export class Indexer {
       });
 
       await this.handleBlockData(slot, blockInfo, context);
-      this.currentSlot = Math.max(this.currentSlot, slot + 1);
+
+      // Only advance currentSlot from realtime after historical sync completes
+      // Otherwise realtime blocks would jump currentSlot ahead and skip the historical gap
+      if (this.historicalSyncComplete) {
+        this.currentSlot = Math.max(this.currentSlot, slot + 1);
+      }
+      
       this.latestRealtimeSlot = slot;
       this.progressUi?.recordRealtimeSlot(slot);
+
+      if (this.cursorStore && blockInfo.block_hash) {
+        await this.cursorStore.upsertCursor(
+          this.cursorKey,
+          slot,
+          blockInfo.block_hash,
+          "realtime",
+          blockInfo.block_time,
+        );
+
+        const storedBlock: StoredBlock = {
+          slot,
+          blockHash: blockInfo.block_hash,
+          parentHash: payload.value.block?.previousBlockhash ?? null,
+          blockTime: blockInfo.block_time,
+          source: "realtime",
+        };
+
+        await this.cursorStore.recordBlock(this.cursorKey, storedBlock);
+      }
     } catch (error) {
       console.error("[Indexer] Failed to process websocket block:", error);
     }
@@ -445,7 +539,7 @@ export class Indexer {
           const startTime = performance.now();
           await this.handleEvent(eventInfo, transaction);
           const duration = performance.now() - startTime;
-            this.progressUi?.recordEvent(eventInfo.programId, eventInfo.event.name, duration);
+          this.progressUi?.recordEvent(eventInfo.programId, eventInfo.event.name, duration);
         }
       }
     }
@@ -458,11 +552,18 @@ export class Indexer {
     }
 
     if (this.cursorStore && blockInfo.block_hash) {
-      await this.cursorStore.upsertCursor(
-        this.cursorKey,
+      const storedBlock: StoredBlock = {
         slot,
-        blockInfo.block_hash,
-      );
+        blockHash: blockInfo.block_hash,
+        parentHash: null,
+        blockTime: blockInfo.block_time,
+        source: "historical",
+      };
+      try {
+        await this.cursorStore.recordBlock(this.cursorKey, storedBlock);
+      } catch (error) {
+        console.error("[Indexer] Failed to record block:", error);
+      }
     }
   }
 
@@ -481,10 +582,18 @@ export class Indexer {
       const chunkEnd = Math.min(chunkStart + this.HISTORICAL_CHUNK_SIZE - 1, toSlot);
       const slotsToFetch: number[] = [];
       for (let slot = chunkStart; slot <= chunkEnd; slot++) {
+        if (this.cursorStore && slot) {
+          const existing = await this.cursorStore.checkIsBlockIndexed(this.cursorKey, slot);
+          if (existing) {
+            continue;
+          }
+        }
         slotsToFetch.push(slot);
       }
 
       const fetchStart = performance.now();
+      const processedSlots = new Map<number, { blockHash: string; blockTime: number | null }>();
+      
       await parallelMap(
         slotsToFetch,
         async (slot) => {          
@@ -504,8 +613,12 @@ export class Indexer {
             });
 
             if (blockInfo) {
-              this.progressUi?.recordHistoricalSlot(slot);
               await this.handleBlockData(slot, blockInfo, context);
+
+              processedSlots.set(slot, {
+                blockHash: blockInfo.block_hash,
+                blockTime: blockInfo.block_time,
+              });
             }
           } catch (error) {
             console.error("[Indexer] Failed to fetch block:", error);
@@ -515,6 +628,42 @@ export class Indexer {
       );
 
       const fetchDuration = performance.now() - fetchStart;
+
+      // Update cursor to highest contiguous slot processed in this batch.
+      // Because parallel processing completes out-of-order, we must wait until
+      // all blocks finish, then find the highest contiguous slot from chunkStart.
+      // Example: If slots [100, 101, 102, 103] complete as [103, 101, 100, 102],
+      // we update cursor to 103 (highest contiguous), not 103 (which completed first).
+      if (this.cursorStore && processedSlots.size > 0) {
+        let lastContiguousSlot = chunkStart - 1;
+        
+        for (let slot = chunkStart; slot <= chunkEnd; slot++) {
+          if (processedSlots.has(slot)) {
+            lastContiguousSlot = slot;
+          } else {
+            break;
+          }
+        }
+        
+        if (lastContiguousSlot >= chunkStart) {
+          const slotData = processedSlots.get(lastContiguousSlot);
+          if (slotData) {
+            try {
+              this.progressUi?.recordHistoricalSlot(lastContiguousSlot);
+              await this.cursorStore.upsertCursor(
+                this.cursorKey,
+                lastContiguousSlot,
+                slotData.blockHash,
+                "historical",
+                slotData.blockTime,
+              );
+              this.currentSlot = lastContiguousSlot + 1;
+            } catch (error) {
+              console.error(`[Indexer] Failed to update cursor for slot ${lastContiguousSlot}:`, error);
+            }
+          }
+        }
+      }
 
       console.log(
         `[processHistoricalRange] Chunk slots ${chunkStart}-${chunkEnd}: ` +
@@ -615,6 +764,10 @@ export class Indexer {
 
   /**
    * Call all registered event handlers for a specific program and event
+   * 
+   * Deduplication: Before executing handlers, we check processed_events table.
+   * If event exists (by cursor_key, txn_hash, program_id, event_index), we skip
+   * handler execution. This allows safe reprocessing of blocks during recovery.
    */
   private async callEventHandlers(
     programId: string,

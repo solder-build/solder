@@ -41,6 +41,17 @@ type BuildTransactionsParams = {
   instructionFilter?: InstructionFilterOptions;
 };
 
+type LegacyCompiledInstruction = {
+  programIdIndex: number;
+  accounts: number[];
+  data: string;
+  stackHeight?: number;
+};
+
+type ParsedAccountKey = { pubkey: string };
+type LegacyPublicKeyLike = { toBase58: () => string };
+type LegacyAccountKey = string | ParsedAccountKey | LegacyPublicKeyLike;
+
 export function buildBlockTransactionsFromParsedBlock({
   block,
   slot,
@@ -151,7 +162,7 @@ export async function fetchParsedBlock(
   blockTime: number | null;
 }> {
   const response = await rpc.getBlock(BigInt(slot), {
-    encoding: "jsonParsed",
+    encoding: "json",
     transactionDetails: "full",
     maxSupportedTransactionVersion: 0,
     rewards: false,
@@ -164,6 +175,61 @@ export async function fetchParsedBlock(
     blockHash: response.blockhash,
     blockTime: response.blockTime ? Number(response.blockTime) : null,
   };
+}
+
+function isLegacyCompiledInstruction(
+  instr: ParsedInstruction | PartiallyDecodedInstruction | LegacyCompiledInstruction,
+): instr is LegacyCompiledInstruction {
+  return typeof (instr as LegacyCompiledInstruction).programIdIndex === "number";
+}
+
+function isParsedAccountKey(key: unknown): key is ParsedAccountKey {
+  return (
+    typeof key === "object" &&
+    key !== null &&
+    "pubkey" in key &&
+    typeof (key as { pubkey?: unknown }).pubkey === "string"
+  );
+}
+
+function isLegacyPublicKeyLike(key: unknown): key is LegacyPublicKeyLike {
+  return (
+    typeof key === "object" &&
+    key !== null &&
+    "toBase58" in key &&
+    typeof (key as { toBase58?: unknown }).toBase58 === "function"
+  );
+}
+
+function normalizeAccountKey(key: LegacyAccountKey | undefined): string | null {
+  if (!key) return null;
+  if (typeof key === "string") {
+    return key;
+  }
+  if (isParsedAccountKey(key)) {
+    return key.pubkey;
+  }
+  if (isLegacyPublicKeyLike(key)) {
+    return fromLegacyPublicKey(key as Parameters<typeof fromLegacyPublicKey>[0]);
+  }
+  return null;
+}
+
+function deriveProgramId(
+  instr: ParsedInstruction | PartiallyDecodedInstruction | LegacyCompiledInstruction,
+  accountKeys: readonly unknown[],
+): string | null {
+  const candidate = (instr as ParsedInstruction | PartiallyDecodedInstruction).programId;
+  if (candidate) {
+    return typeof candidate === "string" ? candidate : fromLegacyPublicKey(candidate);
+  }
+
+  if (isLegacyCompiledInstruction(instr)) {
+    const key = accountKeys[instr.programIdIndex] as LegacyAccountKey | undefined;
+    return normalizeAccountKey(key);
+  }
+
+  return null;
 }
 
 export function forEachInstruction(
@@ -185,13 +251,12 @@ export function forEachInstruction(
     ...mainInstructions,
     ...innerInstructions,
   ];
+  const accountKeys = (transaction.message.accountKeys ?? []) as unknown[];
   for (let i = 0; i < all.length; i++) {
     const instr = all[i];
     if (!instr) continue;
-    // Convert legacy PublicKey to string for compatibility
-    const programId = typeof instr.programId === 'string'
-      ? instr.programId
-      : fromLegacyPublicKey(instr.programId);
+    const programId = deriveProgramId(instr, accountKeys);
+    if (!programId) continue;
     fn({ index: i + 1, programId, instr });
   }
 }
