@@ -1,6 +1,24 @@
 import { Indexer } from "../indexer/indexer";
 import PumpFunIdl from "./idl";
 
+// Helper function to format numbers with commas
+const formatNumber = (value: string | number): string => {
+  return BigInt(value).toLocaleString("en-US");
+};
+
+// Helper function to truncate addresses
+const truncateAddress = (address: string | { toString(): string }, start = 8, end = 8): string => {
+  const addressStr = typeof address === 'string' ? address : address.toString();
+  if (addressStr.length <= start + end) return addressStr;
+  return `${addressStr.slice(0, start)}...${addressStr.slice(-end)}`;
+};
+
+// Helper function to format SOL (lamports to SOL)
+const formatSOL = (lamports: string | number): string => {
+  const sol = Number(lamports) / 1e9;
+  return `${sol.toLocaleString("en-US", { maximumFractionDigits: 4 })} SOL`;
+};
+
 /**
  * Simple example of using the Solder indexer with type-safe event handling
  */
@@ -8,10 +26,12 @@ async function main() {
   console.log("🚀 Starting Solder Indexer Example");
 
   const indexer = new Indexer({
-    startBlock: 300000000,
-    rpcUrl: "https://solder-solanam-6597.mainnet.rpcpool.com/3b46c479-63d2-4713-8555-49171bd416eb",
-    databaseUrl: "postgresql://postgres:password123@127.0.0.1:6500/app",
-    cursorKey: "my-indexer",
+    startBlock: 387361769,
+    rpcUrl: process.env.PROD_RPC_URL || "",
+    databaseUrl: process.env.DATABASE_URL || "",
+    cursorKey: "my-indexer-2",
+    enableUIProgress: true,
+    wsUrl: process.env.WS_URL || "",
   });
 
   console.log("📝 Registering event handlers...");
@@ -21,7 +41,20 @@ async function main() {
     idl: PumpFunIdl,
     eventName: "TradeEvent",
     handler: async (event) => {
-      console.log("Event parsed:", event);
+      const params = event.params;
+
+      const isBuy = params.is_buy === true;
+      
+      console.log("═".repeat(80));
+      console.log(`🎯 ${isBuy ? "🟢 BUY" : "🔴 SELL"} TradeEvent`);
+      console.log("─".repeat(80));
+      console.log(`📍 Slot:        ${formatNumber(event.transaction.slot)}`);
+      console.log(`🔐 Signature:   ${truncateAddress(event.transaction.hash)}`);
+      console.log(`💎 Mint:        ${truncateAddress(params.mint)}`);
+      console.log(`👤 User:        ${truncateAddress(params.user)}`);
+      console.log(`💵 SOL Amount:  ${formatSOL(Number(params.sol_amount))}`);
+      console.log(`🪙 Token Amount: ${formatNumber(Number(params.token_amount))}`);
+      console.log("═".repeat(80));
     },
   });
 
