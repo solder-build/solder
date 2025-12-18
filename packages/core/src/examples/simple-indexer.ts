@@ -26,12 +26,12 @@ async function main() {
   console.log("🚀 Starting Solder Indexer Example");
 
   const indexer = new Indexer({
-    startBlock: 385886013,
-    rpcUrl: "https://solder-solanam-6597.mainnet.rpcpool.com/3b46c479-63d2-4713-8555-49171bd416eb",
-    databaseUrl: "postgresql://postgres:password123@127.0.0.1:6500/app",
+    startBlock: 387361769,
+    rpcUrl: process.env.PROD_RPC_URL || "",
+    databaseUrl: process.env.DATABASE_URL || "",
     cursorKey: "my-indexer-2",
     enableUIProgress: true,
-    wsUrl: "wss://solder-solanam-6597.mainnet.rpcpool.com/3b46c479-63d2-4713-8555-49171bd416eb/whirligig",
+    wsUrl: process.env.WS_URL || "",
   });
 
   console.log("📝 Registering event handlers...");
