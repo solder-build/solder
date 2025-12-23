@@ -28,29 +28,23 @@ export function patchWriteStreams({ getLines }: { getLines: () => string[] }) {
     return count;
   };
 
-  const eraseUi = () => {
-    if (previousLineCount > 0) {
-      originalStdoutWrite.call(process.stdout, ansi.cursorUp(previousLineCount));
-      originalStdoutWrite.call(process.stdout, ansi.eraseDown);
-      previousLineCount = 0;
-    }
-  };
-
-  const renderUi = (lines: string[]) => {
+  const clearAndWriteLines = (lines: string[]) => {
+    if (isWriting && !lines) return;
     const wasAlreadyWriting = isWriting;
     if (!wasAlreadyWriting) isWriting = true;
     try {
-      const text = lines.join('\n');
+      const text = [...lines, ''].join('\n');
+      const newLineCount = calculateLineCount(lines);
+      
+      // Always clear the entire screen and move cursor to top
+      originalStdoutWrite.call(process.stdout, ansi.clearScreen);
+      originalStdoutWrite.call(process.stdout, ansi.cursorTo(0, 0));
+      
       originalStdoutWrite.call(process.stdout, text);
-      previousLineCount = calculateLineCount(lines);
+      previousLineCount = newLineCount;
     } finally {
       if (!wasAlreadyWriting) isWriting = false;
     }
-  };
-
-  const clearAndWriteLines = (lines: string[]) => {
-    eraseUi();
-    renderUi(lines);
   };
 
   const handleOutput = function (
@@ -60,18 +54,17 @@ export function patchWriteStreams({ getLines }: { getLines: () => string[] }) {
     cb?: (err?: Error | null) => void
   ) {
     const originalWrite = this === process.stderr ? originalStderrWrite : originalStdoutWrite;
-    const wasWriting = isWriting;
-    if (!wasWriting) {
-      eraseUi();
-      isWriting = true;
+    if (isWriting) {
+      return originalWrite.apply(this, [buffer, encoding, cb]);
     }
-
+    // Clear screen before writing output
+    originalStdoutWrite.call(process.stdout, ansi.clearScreen);
+    originalStdoutWrite.call(process.stdout, ansi.cursorTo(0, 0));
+    previousLineCount = 0;
+    
     const result = originalWrite.apply(this, [buffer, encoding, cb]);
     const lines = getLines();
-    if (!wasWriting) {
-      isWriting = false;
-      renderUi(lines);
-    }
+    clearAndWriteLines(lines);
     return result;
   };
   process.stdout.write = handleOutput as typeof process.stdout.write;
@@ -79,16 +72,22 @@ export function patchWriteStreams({ getLines }: { getLines: () => string[] }) {
 
   const resizeListener = async () => {
     terminalWidth = await getTerminalWidth();
-    eraseUi();
+    // Clear screen before redrawing
+    originalStdoutWrite.call(process.stdout, ansi.clearScreen);
+    originalStdoutWrite.call(process.stdout, ansi.cursorTo(0, 0));
+    previousLineCount = 0;
+    
     const lines = getLines();
-    renderUi(lines);
+    clearAndWriteLines(lines);
   };
   process.stdout.on('resize', resizeListener);
 
   const shutdown = () => {
     process.stdout.write = originalStdoutWrite;
     process.stderr.write = originalStderrWrite;
-    eraseUi();
+    if (previousLineCount > 0) {
+      originalStdoutWrite.call(process.stdout, ansi.cursorUp(previousLineCount) + ansi.eraseDown);
+    }
     process.stdout.removeListener('resize', resizeListener);
   };
 

@@ -39,7 +39,7 @@ Solder is a comprehensive Solana backend framework that abstracts away the compl
 - Node.js >= 18
 - npm, pnpm, or yarn
 - PostgreSQL database
-- Solana RPC endpoint (optional: defaults to public mainnet RPC) with **WebSocket** connection. You would need **BOTH** URLs.
+- Solana RPC endpoint (optional: defaults to public mainnet RPC)
 - Google Cloud Project with KMS (optional: only if using cloud wallets)
 
 ### Solder App Setup
@@ -566,7 +566,6 @@ const indexer = new Indexer({
 ```
 
 **Features:**
-
 - Live terminal updates without scrolling
 - Performance metrics (RPS, average processing time)
 - Health status indicators
@@ -745,7 +744,6 @@ node packages/core/dist/examples/grpc-indexer.js
 ```
 
 You should see:
-
 - Event handler registration
 - Monitored programs and handler counts
 - Streaming logs as events arrive

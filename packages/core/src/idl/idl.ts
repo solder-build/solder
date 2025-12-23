@@ -1,7 +1,7 @@
 import { BorshCoder, BorshEventCoder, BorshInstructionCoder, Idl, utils } from "@coral-xyz/anchor";
-import { AnchorIdl, EventPayload, toMutableIdl } from "./idl-types";
+import { AnchorIdl, EventType, toMutableIdl } from "./idl-types";
+import { ExtractEventNames } from "../indexer/indexer";
 import { LegacyIdl } from "./legacy-idl-types";
-import { ExtractEventNames } from "../indexer/types/config.types";
 
 export type DecodedMeta = {
   contract: string;
@@ -21,14 +21,14 @@ export type DecodedInstruction = {
   contract: string;
   name: string;
   type: "instruction";
-  data: unknown;
+  parsed: unknown;
 };
 
 export type DecodedEvent = {
   contract: string;
   name: string;
   type: "event";
-  data: unknown;
+  parsed: unknown;
 };
 
 export function getInstructionCoder(
@@ -98,7 +98,7 @@ export function decodeInstruction(
         contract: programId,
         name: decoded.name,
         type: "instruction",
-        data: decoded.data,
+        parsed: decoded.data,
       };
     }
   }
@@ -122,7 +122,7 @@ export const decodeEvent = (
         contract: programId,
         name: decoded.name,
         type: "event",
-        data: decoded.data,
+        parsed: decoded.data,
       };
     }
   }

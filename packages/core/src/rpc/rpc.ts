@@ -1,11 +1,8 @@
+import { ParsedTransaction } from "@solana/web3.js";
 import { createSolanaRpc } from "@solana/rpc";
-import { fetchParsedBlock, buildBlockInfoResult } from "../utils/block";
-import type {
-  BlockInfoResult,
-  BlockTransactionInfo,
-  EventFilterOptions,
-  InstructionFilterOptions,
-} from "../types/block";
+import { fromLegacyPublicKey } from "@solana/compat";
+import { DecodedEvent, decodeEvent, decodeInstruction } from "../idl/idl";
+import { collectWith, fetchParsedBlock, isParsedInstruction, isPartiallyDecodedInstruction } from "../utils/block";
 
 export type RpcClientOptions = {
   endpoint?: string;
@@ -14,24 +11,26 @@ export type RpcClientOptions = {
   httpHeaders?: Record<string, string>;
 };
 
-// Aliases already imported from utils/block.ts
+type InstructionInfo = {
+  index: number;
+  programId: string;
+  parsed: unknown;
+};
 
-type BlockInfoOptions = {
-  includeEvents?: boolean;
-  includeInstructions?: boolean;
-  eventFilter?: EventFilterOptions;
-  instructionFilter?: InstructionFilterOptions;
-} & (
-  | {
-      includeEvents: true;
-      eventFilter: EventFilterOptions;
-    }
-  | {
-      includeInstructions: true;
-      instructionFilter: InstructionFilterOptions;
-    }
-  | {}
-);
+type EventInfo = {
+  index: number;
+  programId: string;
+  event: DecodedEvent;
+};
+
+// For type narrowing on transactions array
+type ParsedBlockTx = import("../utils/block").ParsedBlockTx;
+
+function hasMessage(tx: ParsedBlockTx["transaction"]): tx is ParsedTransaction {
+  return (tx as ParsedTransaction).message !== undefined;
+}
+
+// Aliases already imported from utils/block.ts
 
 export class RpcClient {
   private readonly rpc: ReturnType<typeof createSolanaRpc>;
@@ -98,30 +97,67 @@ export class RpcClient {
     block_number: number;
     block_hash: string;
     block_time: number | null;
-    transactions: Array<
-      Omit<BlockTransactionInfo, "events">
-    >;
+    transactions: Array<{
+      block_number: number;
+      block_hash: string;
+      block_ts: number | null;
+      txn_hash: string | undefined;
+      instructions: InstructionInfo[];
+    }>;
   } | null> {
-    const data = await this.getBlockInfo(slot, {
-      includeEvents: false,
-      includeInstructions: true,
-      instructionFilter: (filter ?? { programIds: [] }) as InstructionFilterOptions,
-    });
-    if (!data) return null;
+    const { block, blockHash, blockTime } = await fetchParsedBlock(
+      this.rpc,
+      slot,
+    );
+    if (!block || !blockHash) return null;
+    const transactions: Array<{
+      block_number: number;
+      block_hash: string;
+      block_ts: number | null;
+      txn_hash: string | undefined;
+      instructions: InstructionInfo[];
+    }> = [];
+
+    for (const txn of block.transactions as ParsedBlockTx[]) {
+      const signatures = txn.transaction.signatures;
+      const signature = signatures[0];
+      const instructions = hasMessage(txn.transaction)
+        ? collectWith<InstructionInfo>(
+          { transaction: txn.transaction, meta: txn.meta! },
+          filter ?? { programIds: [] },
+          ({ index, programId, instr }) => {
+            if (isParsedInstruction(instr)) {
+              return { index, programId, parsed: instr.parsed };
+            }
+            if (isPartiallyDecodedInstruction(instr) && filter?.programIdls) {
+              // Use program-specific IDL if provided
+              const programIdl = filter.programIdls?.get(programId);
+              const decoded = decodeInstruction(instr.data, programId, programIdl);
+              return decoded == null ? null : { index, programId, parsed: decoded };
+            }
+            return null;
+          },
+        )
+        : [];
+
+      if (!instructions.length) {
+        continue;
+      }
+
+      transactions.push({
+        block_number: slot,
+        block_hash: blockHash,
+        block_ts: blockTime,
+        txn_hash: signature,
+        instructions,
+      });
+    }
 
     return {
-      block_number: data.block_number,
-      block_hash: data.block_hash,
-      block_time: data.block_time,
-      transactions: data.transactions
-        .filter((txn) => txn.instructions.length > 0)
-        .map((txn) => ({
-          block_number: txn.block_number,
-          block_hash: txn.block_hash,
-          block_ts: txn.block_ts,
-          txn_hash: txn.txn_hash,
-          instructions: txn.instructions,
-        })),
+      block_number: slot,
+      block_hash: blockHash,
+      block_time: blockTime,
+      transactions,
     };
   }
 
@@ -135,71 +171,61 @@ export class RpcClient {
     block_number: number;
     block_hash: string;
     block_time: number | null;
-    transactions: Array<
-      Omit<BlockTransactionInfo, "instructions">
-    >;
+    transactions: Array<{
+      block_number: number;
+      block_hash: string;
+      block_ts: number | null;
+      txn_hash: string | undefined;
+      events: EventInfo[];
+    }>;
   } | null> {
-    const data = await this.getBlockInfo(slot, {
-      includeEvents: true,
-      includeInstructions: false,
-      eventFilter: filter,
-    });
-    if (!data) return null;
+    const { block, blockHash, blockTime } = await fetchParsedBlock(
+      this.rpc,
+      slot,
+    );
+    if (!block || !blockHash) return null;
+    const transactions: Array<{
+      block_number: number;
+      block_hash: string;
+      block_ts: number | null;
+      txn_hash: string | undefined;
+      events: EventInfo[];
+    }> = [];
 
-    return {
-      block_number: data.block_number,
-      block_hash: data.block_hash,
-      block_time: data.block_time,
-      transactions: data.transactions
-        .filter((txn) => txn.events.length > 0)
-        .map((txn) => ({
-          block_number: txn.block_number,
-          block_hash: txn.block_hash,
-          block_ts: txn.block_ts,
-          txn_hash: txn.txn_hash,
-          events: txn.events,
-        })),
-    };
-  }
+    for (const txn of block.transactions as ParsedBlockTx[]) {
+      const signatures = txn.transaction.signatures;
+      const signature = signatures[0];
+      const events = hasMessage(txn.transaction)
+        ? collectWith<EventInfo>(
+          { transaction: txn.transaction, meta: txn.meta! },
+          filter,
+          ({ index, programId, instr }) => {
+            if (isPartiallyDecodedInstruction(instr)) {
+              const programIdl = filter.programIdls?.get(programId);
+              const decoded = decodeEvent(instr.data, programId, programIdl);
+              return decoded ? { index, programId, event: decoded } : null;
+            }
+            return null;
+          },
+        )
+        : [];
 
-  async getBlockInfo(
-    slot: number,
-    options: BlockInfoOptions = {}
-  ): Promise<BlockInfoResult | null> {
-    const includeEvents = options.includeEvents ?? true;
-    const includeInstructions = options.includeInstructions ?? true;
+      if (!events.length) continue;
 
-    if (!includeEvents && !includeInstructions) {
-      return {
+      transactions.push({
         block_number: slot,
-        block_hash: "",
-        block_time: null,
-        transactions: [],
-      };
+        block_hash: blockHash,
+        block_ts: blockTime,
+        txn_hash: signature,
+        events,
+      });
     }
 
-    const { block, blockHash, blockTime } = await fetchParsedBlock(this.rpc, slot);
-
-    if (!block || !blockHash) return null;
-
-    return buildBlockInfoResult({
-      block,
-      slot,
-      blockHash,
-      blockTime,
-      includeEvents,
-      includeInstructions,
-      eventFilter: options.eventFilter,
-      instructionFilter: options.instructionFilter,
-    });
+    return {
+      block_number: slot,
+      block_hash: blockHash,
+      block_time: blockTime,
+      transactions,
+    };
   }
 }
-
-export type {
-  BlockTransactionInfo,
-  BlockInfoResult,
-  EventFilterOptions,
-  InstructionFilterOptions,
-  EventInfo,
-  InstructionInfo,
-} from "../types/block";

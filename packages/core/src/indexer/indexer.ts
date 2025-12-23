@@ -1,43 +1,149 @@
 import { RpcClient } from "../rpc/rpc";
-import type { BlockTransactionInfo, BlockInfoResult, EventFilterOptions, InstructionFilterOptions } from "../types/block";
-import { DecodedEvent, isLegacyIdl } from "../idl/idl";
-import { ProgressUiController } from "../ui/progress";
-import { CursorStore, type StoredBlock, type StoredEvent } from "./db";
+import { AnchorIdl, EventType, IdlEvent } from "../idl/idl-types";
+import { LegacyEventType, LegacyIdl } from "../idl/legacy-idl-types";
+import { isLegacyIdl } from "../idl/idl";
+import { CursorStore } from "./db";
 import { drizzle, NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import type { AnchorIdl } from "../idl/idl-types";
-import type {
-  ExtractEventNames,
-  EventHandler,
-  IndexerConfig,
-  IndexerEvent,
-  IndexerTransaction,
-  OnEventConfig,
-  OnTransactionConfig,
-  RegisteredProgram,
-  TransactionHandler,
-} from "./types/config.types";
-import { parallelMap } from "../utils/async";
-import { buildBlockInfoResult } from "../utils/block";
-import {
-  WebSocketChannel,
-  type WebSocketSubscription,
-  type BlockNotificationPayload,
-} from "./channels/websocket-channel";
-import { defaultLogger, type Logger } from "../utils/logger";
+import { Idl } from "@coral-xyz/anchor";
 
-type BlockProcessingContext = {
-  programIds: string[];
-  programIdls: Map<string, AnchorIdl>;
-  txProgramIds: string[];
-  hasEventHandlers: boolean;
-  hasTransactionHandlers: boolean;
-};
+export interface IndexerConfig {
+  startBlock: number;
+  rpcUrl?: string;
+  databaseUrl?: string; // Postgres connection string
+  cursorKey?: string; // namespaced cursor key
+  enableUIProgress?: boolean; // enable UI progress
+}
+
+
+export interface RegisteredProgram {
+  programId: string;
+  eventTypes: string[];
+  idl: any; // Anchor IDL object
+}
+
+export interface EventHandler<
+  TIdl extends AnchorIdl = AnchorIdl,
+  TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
+> {
+  id: string;
+  programId: string;
+  idl: TIdl;
+  eventName: string;
+  handler: (
+    event: IndexerEvent<TIdl, TEventName>,
+    db: NodePgDatabase<Record<string, never>> & { $client: Pool },
+  ) => Promise<void> | void;
+}
+
+export interface OnEventConfig<
+  TIdl extends AnchorIdl = AnchorIdl,
+  TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
+> {
+  programId: string;
+  idl: TIdl;
+  eventName: TEventName;
+  handler: (
+    event: IndexerEvent<TIdl, TEventName>,
+    db: NodePgDatabase<Record<string, never>> & { $client: Pool },
+  ) => Promise<void> | void;
+}
+
+export interface IndexerTransaction {
+  hash: string;
+  slot: number;
+  blockTime: number | null;
+  blockHash: string;
+  data: {
+    block_number: number;
+    block_hash: string;
+    block_ts: number | null;
+    txn_hash: string | undefined;
+    instructions: Array<{
+      index: number;
+      programId: string;
+      data: unknown & {
+        type: string;
+        info: unknown;
+      };
+    }>;
+  };
+}
+
+export interface TransactionHandler {
+  id: string;
+  filterByInstructions?: string[];
+  filterByProgramIds?: string[];
+  handler: (
+    transaction: IndexerTransaction,
+    db: NodePgDatabase<Record<string, never>> & { $client: Pool },
+  ) => Promise<void> | void;
+}
+
+export interface OnTransactionConfig {
+  filterByInstructions?: string[]; // if provided, only transactions with these instructions will be passed to the handler
+  filterByProgramIds?: string[]; // if provided, only transactions with these program IDs will be passed to the handler
+  handler: (
+    transaction: IndexerTransaction,
+    db: NodePgDatabase<Record<string, never>> & { $client: Pool },
+  ) => Promise<void> | void;
+}
+
+// Type to extract event names from IDL (supports both legacy and current formats)
+export type ExtractEventNames<TIdl extends AnchorIdl> =
+  [TIdl] extends [LegacyIdl]
+  ? TIdl extends { events?: readonly { name: infer TName }[] }
+  ? TName extends string
+  ? TName
+  : never
+  : never
+  : TIdl extends { events?: readonly { name: infer TName }[] }
+  ? TName extends string
+  ? TName
+  : never
+  : never;
+
+// Type to get event data from IDL
+export type ExtractEventData<
+  TIdl extends AnchorIdl,
+  TEventName extends ExtractEventNames<TIdl>,
+> = TIdl extends { events: infer TEvents }
+  ? TEvents extends readonly any[]
+  ? TEvents[number] extends { name: TEventName; fields: infer TFields }
+  ? TFields
+  : never
+  : never
+  : never;
+
+type EventPayload<
+  TIdl extends AnchorIdl,
+  TEventName extends ExtractEventNames<TIdl>
+> = TIdl extends LegacyIdl
+  ? LegacyEventType<TIdl, TEventName & string>
+  : TIdl extends AnchorIdl
+  ? EventType<TIdl, TEventName>
+  : never;
+
+// Type for the complete event object passed to handlers (supports both legacy and current IDL)
+export interface IndexerEvent<
+  TIdl extends AnchorIdl = AnchorIdl,
+  TEventName extends ExtractEventNames<TIdl> = ExtractEventNames<TIdl>,
+> {
+  name: string;
+  contract: string;
+  type: string;
+  params: EventPayload<TIdl, TEventName>;
+  timestamp: string;
+  transaction: {
+    hash: string;
+    slot: number;
+    blockTime: number;
+  };
+  programId: string;
+  eventName: TEventName;
+}
 
 export class Indexer {
-  private readonly HISTORICAL_CHUNK_SIZE = 50;
-  private readonly HISTORICAL_CONCURRENCY = 10;
-
   private readonly rpcClient: RpcClient;
   private registeredPrograms: Map<string, RegisteredProgram> = new Map();
   private eventHandlers: Map<string, EventHandler<any>> = new Map();
@@ -51,42 +157,26 @@ export class Indexer {
     | (NodePgDatabase<Record<string, never>> & { $client: Pool })
     | null = null;
   private uiShutdown?: () => void;
-  private websocketChannel?: WebSocketChannel;
-  private websocketSubscription?: WebSocketSubscription<BlockNotificationPayload>;
-  private wsHealthy = false;
-  private latestRealtimeSlot: number | null = null;
-  private firstRealtimeSlot: number | null = null; // Anchor point for historical sync
-  private historicalSyncComplete = false;
-  private progressUi?: ProgressUiController;
-  private wsUrl: string;
-  private logger: Logger;
+  private progressState = {
+    requestTimestamps: [] as number[],
+    eventStats: new Map<string, { count: number; totalDuration: number; contractAddress: string }>(),
+    startSlot: 0,
+    latestSlot: 0,
+    startTime: 0,
+  };
 
   constructor(config: IndexerConfig) {
-    const {
-      rpcUrl = "https://api.mainnet-beta.solana.com",
-      startBlock,
-      cursorKey = "default",
-      enableUIProgress = false,
-      databaseUrl,
-      wsUrl,
-      logger = defaultLogger,
-    } = config;
-
-    this.rpcClient = new RpcClient({ endpoint: rpcUrl });
-    this.currentSlot = startBlock;
-    this.cursorKey = cursorKey;
-    this.enableUIProgress = enableUIProgress;
-    this.wsUrl = wsUrl;
-    this.logger = logger;
-
-    const pool = new Pool({
-      connectionString: databaseUrl,
-    });
-
-    if (databaseUrl) {
-      this.cursorStore = new CursorStore(databaseUrl);
+    this.rpcClient = new RpcClient({ endpoint: config.rpcUrl ?? "https://api.mainnet-beta.solana.com" });
+    this.currentSlot = config.startBlock;
+    this.cursorKey = config.cursorKey ?? "default";
+    this.enableUIProgress = config.enableUIProgress ?? false;
+    if (config.databaseUrl) {
+      const pool = new Pool({
+        connectionString: process.env.DATABASE_URL ?? "postgresql://postgres:postgres@localhost:5432/postgres",
+      });
+      this.cursorStore = new CursorStore(config.databaseUrl);
+      this.db = drizzle({ client: pool });
     }
-    this.db = drizzle({ client: pool });
   }
 
   /**
@@ -104,7 +194,7 @@ export class Indexer {
       eventTypes,
       idl,
     });
-    this.logger.info(
+    console.log(
       `Registered program ${programId} with event types:`,
       eventTypes,
     );
@@ -112,6 +202,7 @@ export class Indexer {
 
   /**
    * Validate that the IDL contains the requested event types
+   * Supports both legacy and current IDL formats
    */
   private validateEventTypes(idl: any, eventTypes: string[]): void {
     if (!idl) {
@@ -191,19 +282,19 @@ export class Indexer {
         !existingProgram.eventTypes.includes(config.eventName)
       ) {
         existingProgram.eventTypes.push(config.eventName);
-        this.logger.info(
+        console.log(
           `Added event type ${config.eventName} to existing program ${config.programId}`,
         );
       }
     }
 
-    this.logger.info(
+    console.log(
       `Registered event handler for ${config.eventName} on program ${config.programId}`,
     );
 
     return () => {
       this.eventHandlers.delete(handlerId);
-      this.logger.info(
+      console.log(
         `Removed event handler for ${config.eventName} on program ${config.programId}`,
       );
     };
@@ -221,26 +312,33 @@ export class Indexer {
    * @param config Configuration for the transaction handler
    * @returns A function to remove the transaction handler
    */
-  public async onTransaction<TIdl extends AnchorIdl>(
-    config: OnTransactionConfig<TIdl>,
+  public async onTransaction(
+    config: OnTransactionConfig,
   ): Promise<() => void> {
-    const handlerId = `transaction-${config.programId}-${Date.now()}`;
+    let handlerId = `transaction-${Date.now()}`;
 
-    const transactionHandler: TransactionHandler<TIdl> = {
+    if (config.filterByInstructions) {
+      handlerId += `-${config.filterByInstructions.sort().join("-")}`;
+    }
+
+    if (config.filterByProgramIds) {
+      handlerId += `-${config.filterByProgramIds.sort().join("-")}`;
+    }
+
+    const transactionHandler: TransactionHandler = {
       id: handlerId,
-      programId: config.programId,
-      idl: config.idl,
-      instructionNames: config.instructionNames,
+      filterByInstructions: config.filterByInstructions,
+      filterByProgramIds: config.filterByProgramIds,
       handler: config.handler,
     };
 
     this.transactionHandlers.set(handlerId, transactionHandler);
 
-    this.logger.info(`Registered transaction handler for program ${config.programId}`);
+    console.log(`Registered transaction handler`);
 
     return () => {
       this.transactionHandlers.delete(handlerId);
-      this.logger.info(`Removed transaction handler for program ${config.programId}`);
+      console.log(`Removed transaction handler`);
     };
   }
 
@@ -261,108 +359,56 @@ export class Indexer {
       .map(([id, _]) => id);
 
     handlersToRemove.forEach((id) => this.eventHandlers.delete(id));
-    this.logger.info(
+    console.log(
       `Removed ${handlersToRemove.length} event handlers for program ${programId}`,
     );
   }
 
   /**
    * Start the indexer to process blocks from the configured start block
-   * 
-   * Resumption Algorithm:
-   * 1. Connect WebSocket and wait for first realtime block (the "anchor")
-   * 2. Historical sync: last_checkpoint → (anchor - 1)
-   * 3. Continue with realtime stream from anchor onwards
-   * 
-   * This ensures no gaps:
-   * - WebSocket gives us everything >= anchor
-   * - Historical backfills everything < anchor
-   * - Deduplication via processed_events prevents double-processing
-   * 
-   * On crash/restart:
-   * - New anchor established from current chain tip
-   * - Historical resumes from last checkpoint
-   * - Overlapping blocks safely deduplicated
    */
   async start(): Promise<void> {
     if (this.isRunning) {
-      this.logger.info("Indexer is already running");
+      console.log("Indexer is already running");
       return;
     }
 
     this.isRunning = true;
-    this.latestRealtimeSlot = null;
-    this.firstRealtimeSlot = null;
-    this.historicalSyncComplete = false;
 
     // Initialize progress state
-    const latestSlot = Number(await this.rpcClient.getSlot());
+    this.progressState.startSlot = this.currentSlot;
+    this.progressState.startTime = Date.now();
+    this.progressState.latestSlot = Number(await this.rpcClient.getSlot());
 
+    // Setup UI if enabled
     if (this.enableUIProgress) {
-      this.progressUi = new ProgressUiController();
-      this.progressUi.initialize(this.currentSlot, latestSlot);
-      if (this.latestRealtimeSlot !== null) {
-        this.progressUi.recordRealtimeSlot(this.latestRealtimeSlot);
-      }
-      this.uiShutdown = ProgressUiController.setup(() =>
-        this.progressUi!.buildState({
-          isRunning: this.isRunning,
-          currentSlot: this.currentSlot,
-          hasDatabase: this.db !== null,
-          wsHealthy: this.wsHealthy,
-          websocketActive: !!this.websocketChannel,
-        }),
-      );
-    } else {
-      this.progressUi = undefined;
+      const { setupProgressUi } = await import('../ui/progress.js');
+      this.uiShutdown = setupProgressUi(() => this.getProgressUiState());
     }
 
     // Initialize cursor store if available
     if (this.cursorStore) {
       await this.cursorStore.connect();
       await this.cursorStore.init();
-      const existing = await this.cursorStore.getCursor(this.cursorKey, "historical");
+      const existing = await this.cursorStore.getCursor(this.cursorKey);
       if (existing && existing.last_slot > 0) {
         this.currentSlot = existing.last_slot + 1; // resume from next slot
       }
     }
 
-    this.logger.info(`Starting indexer from block ${this.currentSlot}`);
+    console.log(`Starting indexer from block ${this.currentSlot}`);
+    console.log(`Monitoring programs:`, this.getRegisteredProgramIds());
     if (this.transactionHandlers.size > 0) {
-      this.logger.info(
+      console.log(
         `Monitoring all transactions (${this.transactionHandlers.size} handler(s))`,
       );
     }
 
-    await this.initializeRealtimeSync().catch((error) => {
-      this.logger.error("Failed to initialize websocket channel, falling back to HTTP polling:", error);
-      return null;
-    });
-
-    // Wait for first realtime block to establish historical target
-    if (this.websocketSubscription) {
-      this.logger.info("⏳ Waiting for first realtime block to establish sync boundary...");
-      await this.waitForFirstRealtimeBlock();
-    }
-
-    // Historical sync target: up to (firstRealtimeSlot - 1) or current chain tip
-    const historicalTarget = this.firstRealtimeSlot 
-      ? this.firstRealtimeSlot - 1 
-      : Math.max(latestSlot - 1, this.currentSlot - 1);
 
     try {
-      this.progressUi?.recordHistoricalSlot(this.currentSlot);
-      if (this.currentSlot <= historicalTarget) {
-        this.logger.info(`📚 Starting historical sync: ${this.currentSlot} → ${historicalTarget}`);
-        await this.processHistoricalRange(this.currentSlot, historicalTarget);
-        this.logger.info(`✅ Historical sync complete. Now processing realtime stream.`);
-      } else {
-        this.logger.info(`✅ Already caught up. Processing realtime stream only.`);
-      }
-
-      // Mark historical sync as complete so realtime processing can advance currentSlot
-      this.historicalSyncComplete = true;
+      await this.processBlocks();
     } catch (error) {
+      console.error("Indexer error:", error);
       this.isRunning = false;
       throw error;
     }
@@ -373,8 +419,6 @@ export class Indexer {
    */
   stop(): void {
     this.isRunning = false;
-    this.firstRealtimeSlot = null; // Reset anchor on stop
-    this.historicalSyncComplete = false; // Reset for next run
 
     // Shutdown UI if it was enabled
     if (this.uiShutdown) {
@@ -382,306 +426,127 @@ export class Indexer {
       this.uiShutdown = undefined;
     }
 
-    if (this.websocketSubscription) {
-      this.websocketSubscription.removeAllListeners();
-      this.websocketSubscription.unsubscribe().catch(() => {});
-      this.websocketSubscription = undefined;
-    }
-
-    if (this.websocketChannel) {
-      this.websocketChannel.disconnect();
-      this.websocketChannel.removeAllListeners();
-      this.websocketChannel = undefined;
-    }
-
-    this.wsHealthy = false;
-
-    this.logger.info("Indexer stopped");
+    console.log("Indexer stopped");
     if (this.cursorStore) {
       this.cursorStore.close().catch(() => { });
     }
   }
 
   /**
-   * Wait for the first realtime block to establish the historical sync boundary
+   * Process blocks continuously
    */
-  private async waitForFirstRealtimeBlock(): Promise<void> {
-    if (this.firstRealtimeSlot !== null) {
-      return; // Already received
-    }
+  private async processBlocks(): Promise<void> {
+    while (this.isRunning) {
+      try {
+        const latestSlot = Number(await this.rpcClient.getSlot());
 
-    return new Promise((resolve) => {
-      const checkInterval = setInterval(() => {
-        if (this.firstRealtimeSlot !== null) {
-          clearInterval(checkInterval);
-          resolve();
+        if (this.currentSlot <= latestSlot) {
+          await this.processBlock(this.currentSlot);
+          this.currentSlot++;
+        } else {
+          // Wait a bit before checking for new blocks
+          await new Promise((resolve) => setTimeout(resolve, 1000));
         }
-      }, 100);
-
-      // Timeout after 10 seconds
-      setTimeout(() => {
-        clearInterval(checkInterval);
-        resolve();
-      }, 10_000);
-    });
+      } catch (error) {
+        console.error(`Error processing block ${this.currentSlot}:`, error);
+        // Continue with next block
+        this.currentSlot++;
+      }
+    }
   }
 
   /**
-   * Process a single block for registered programs and events
-   */
-  private async processBlock(payload: BlockNotificationPayload): Promise<void> {
-    const context = this.buildBlockProcessingContext();
-    const slot = payload.value.slot ?? payload.context.slot;
+ * Process a single block for registered programs and events
+ */
+  private async processBlock(slot: number): Promise<void> {
+    // Track request for RPS calculation
+    this.progressState.requestTimestamps.push(Date.now());
+    if (this.progressState.requestTimestamps.length > 100) {
+      this.progressState.requestTimestamps.shift(); // keep last 100
+    }
 
-    if (
-      slot === undefined ||
-      slot === null ||
-      !payload.value.block ||
-      (!context.hasEventHandlers && !context.hasTransactionHandlers)
-    ) {
+    const programIds = this.getRegisteredProgramIds();
+
+    const hasTransactionHandlers = this.transactionHandlers.size > 0;
+
+    if (programIds.length === 0 && !hasTransactionHandlers) {
+      console.log(`No programs registered, skipping block ${slot}`);
       return;
     }
 
-    // Record the first realtime slot as anchor point
-    if (this.firstRealtimeSlot === null) {
-      this.firstRealtimeSlot = slot;
-      this.logger.info(`🎯 First realtime block received at slot ${slot}`);
-    }
-
-    const includeEvents = context.hasEventHandlers;
-    const includeInstructions = context.hasTransactionHandlers;
-    const eventFilter: EventFilterOptions | undefined = includeEvents
-      ? { programIds: context.programIds, programIdls: context.programIdls }
-      : undefined;
-    const instructionFilter: InstructionFilterOptions | undefined = includeInstructions
-      ? { programIds: context.txProgramIds, programIdls: context.programIdls }
-      : undefined;
-
     try {
-      const blockInfo = buildBlockInfoResult({
-        block: payload.value.block,
-        slot,
-        blockHash: payload.value.block.blockhash ?? "",
-        blockTime: payload.value.block.blockTime ?? null,
-        includeEvents,
-        includeInstructions,
-        eventFilter,
-        instructionFilter,
+      // Create program IDL mapping
+      const programIdls = new Map<string, Idl>();
+      this.registeredPrograms.forEach((program, programId) => {
+        programIdls.set(programId, program.idl);
       });
 
-      await this.handleBlockData(slot, blockInfo, context);
+      const blockData = await this.rpcClient.getBlockWithEvents(slot, {
+        programIds,
+        programIdls,
+      });
 
-      // Only advance currentSlot from realtime after historical sync completes
-      // Otherwise realtime blocks would jump currentSlot ahead and skip the historical gap
-      if (this.historicalSyncComplete) {
-        this.currentSlot = Math.max(this.currentSlot, slot + 1);
+      if (blockData) {
+        for (const transaction of blockData.transactions) {
+          for (const eventInfo of transaction.events) {
+            const startTime = performance.now();
+            await this.handleEvent(eventInfo, transaction);
+
+            // Track event stats
+            const duration = performance.now() - startTime;
+            const key = `${eventInfo.programId}-${eventInfo.event.name}`;
+            const existing = this.progressState.eventStats.get(key);
+            if (existing) {
+              existing.count++;
+              existing.totalDuration += duration;
+            } else {
+              this.progressState.eventStats.set(key, {
+                count: 1,
+                totalDuration: duration,
+                contractAddress: eventInfo.programId.slice(0, 16),
+              });
+            }
+          }
+        }
       }
-      
-      this.latestRealtimeSlot = slot;
-      this.progressUi?.recordRealtimeSlot(slot);
 
-      if (this.cursorStore && blockInfo.block_hash) {
+
+      if (hasTransactionHandlers) {
+        const blockDataForTransactions = await this.rpcClient.getBlockWithInstructions(slot);
+        if (blockDataForTransactions) {
+          for (const transaction of blockDataForTransactions.transactions) {
+            await this.handleTransaction(transaction);
+          }
+        }
+      }
+
+      if (this.cursorStore && blockData?.block_hash) {
         await this.cursorStore.upsertCursor(
           this.cursorKey,
           slot,
-          blockInfo.block_hash,
-          "realtime",
-          blockInfo.block_time,
+          blockData.block_hash,
         );
-
-        const storedBlock: StoredBlock = {
-          slot,
-          blockHash: blockInfo.block_hash,
-          parentHash: payload.value.block?.previousBlockhash ?? null,
-          blockTime: blockInfo.block_time,
-          source: "realtime",
-        };
-
-        await this.cursorStore.recordBlock(this.cursorKey, storedBlock);
       }
     } catch (error) {
-      this.logger.error("[Indexer] Failed to process websocket block:", error);
+      console.error(`Error fetching block ${slot}:`, error);
     }
-  }
-
-  private buildBlockProcessingContext(): BlockProcessingContext {
-    const programIds = this.getRegisteredProgramIds();
-    const programIdls = new Map<string, AnchorIdl>();
-    this.registeredPrograms.forEach((program, programId) => {
-      programIdls.set(programId, program.idl);
-    });
-
-    const txProgramIds = new Set<string>();
-    this.transactionHandlers.forEach((handler) => {
-      txProgramIds.add(handler.programId);
-      if (handler.idl) {
-        programIdls.set(handler.programId, handler.idl as AnchorIdl);
-      }
-    });
-
-    return {
-      programIds,
-      programIdls,
-      txProgramIds: Array.from(txProgramIds),
-      hasEventHandlers: programIds.length > 0,
-      hasTransactionHandlers: this.transactionHandlers.size > 0,
-    };
-  }
-
-  private async handleBlockData(
-    slot: number,
-    blockInfo: BlockInfoResult,
-    context: BlockProcessingContext,
-  ): Promise<void> {
-    const { hasEventHandlers, hasTransactionHandlers } = context;
-
-    if (hasEventHandlers) {
-      for (const transaction of blockInfo.transactions) {
-        if (!transaction.events?.length) continue;
-        for (const eventInfo of transaction.events) {
-          const startTime = performance.now();
-          await this.handleEvent(eventInfo, transaction);
-          const duration = performance.now() - startTime;
-          this.progressUi?.recordEvent(eventInfo.programId, eventInfo.event.name, duration);
-        }
-      }
-    }
-
-    if (hasTransactionHandlers) {
-      for (const transaction of blockInfo.transactions) {
-        if (!transaction.instructions?.length) continue;
-        await this.handleTransaction(transaction);
-      }
-    }
-
-    if (this.cursorStore && blockInfo.block_hash) {
-      const storedBlock: StoredBlock = {
-        slot,
-        blockHash: blockInfo.block_hash,
-        parentHash: null,
-        blockTime: blockInfo.block_time,
-        source: "historical",
-      };
-      try {
-        await this.cursorStore.recordBlock(this.cursorKey, storedBlock);
-      } catch (error) {
-        this.logger.error("[Indexer] Failed to record block:", error);
-      }
-    }
-  }
-
-  private async processHistoricalRange(fromSlot: number, toSlot: number): Promise<void> {
-    if (fromSlot > toSlot) {
-      return;
-    }
-
-    const context = this.buildBlockProcessingContext();
-    if (!context.hasEventHandlers && !context.hasTransactionHandlers) {
-      this.currentSlot = toSlot + 1;
-      return;
-    }
-
-    for (let chunkStart = fromSlot; chunkStart <= toSlot; chunkStart += this.HISTORICAL_CHUNK_SIZE) {
-      const chunkEnd = Math.min(chunkStart + this.HISTORICAL_CHUNK_SIZE - 1, toSlot);
-      const slotsToFetch: number[] = [];
-      for (let slot = chunkStart; slot <= chunkEnd; slot++) {
-        if (this.cursorStore) {
-          const existing = await this.cursorStore.checkIsBlockIndexed(this.cursorKey, slot);
-          if (existing) {
-            continue;
-          }
-        }
-        slotsToFetch.push(slot);
-      }
-
-      const fetchStart = performance.now();
-      const processedSlots = new Map<number, { blockHash: string; blockTime: number | null }>();
-      
-      await parallelMap(
-        slotsToFetch,
-        async (slot) => {          
-          // Track RPC request for progress tracking (per block fetch)
-          this.progressUi?.recordRequest();
-
-          try {
-            const blockInfo = await this.rpcClient.getBlockInfo(slot, {
-              includeEvents: context.hasEventHandlers,
-              includeInstructions: context.hasTransactionHandlers,
-              eventFilter: context.hasEventHandlers
-                ? { programIds: context.programIds, programIdls: context.programIdls }
-                : undefined,
-              instructionFilter: context.hasTransactionHandlers
-                ? { programIds: context.txProgramIds, programIdls: context.programIdls }
-                : undefined,
-            });
-
-            if (blockInfo) {
-              await this.handleBlockData(slot, blockInfo, context);
-
-              processedSlots.set(slot, {
-                blockHash: blockInfo.block_hash,
-                blockTime: blockInfo.block_time,
-              });
-            }
-          } catch (error) {
-            this.logger.error("[Indexer] Failed to fetch block:", error);
-          }
-        },
-        this.HISTORICAL_CONCURRENCY
-      );
-
-      const fetchDuration = performance.now() - fetchStart;
-
-      // Update cursor to highest contiguous slot processed in this batch.
-      // Because parallel processing completes out-of-order, we must wait until
-      // all blocks finish, then find the highest contiguous slot from chunkStart.
-      // Example: If slots [100, 101, 102, 103] complete as [103, 101, 100, 102],
-      // we update cursor to 103 (highest contiguous), not 103 (which completed first).
-      if (this.cursorStore && processedSlots.size > 0) {
-        let lastContiguousSlot = chunkStart - 1;
-        
-        for (let slot = chunkStart; slot <= chunkEnd; slot++) {
-          if (processedSlots.has(slot)) {
-            lastContiguousSlot = slot;
-          } else {
-            break;
-          }
-        }
-        
-        if (lastContiguousSlot >= chunkStart) {
-          const slotData = processedSlots.get(lastContiguousSlot);
-          if (slotData) {
-            try {
-              this.progressUi?.recordHistoricalSlot(lastContiguousSlot);
-              await this.cursorStore.upsertCursor(
-                this.cursorKey,
-                lastContiguousSlot,
-                slotData.blockHash,
-                "historical",
-                slotData.blockTime,
-              );
-              this.currentSlot = lastContiguousSlot + 1;
-            } catch (error) {
-              this.logger.error(`[Indexer] Failed to update cursor for slot ${lastContiguousSlot}:`, error);
-            }
-          }
-        }
-      }
-
-      this.logger.info(
-        `[processHistoricalRange] Chunk slots ${chunkStart}-${chunkEnd}: ` +
-        `fetched ${slotsToFetch.length} blocks in ${fetchDuration.toFixed(2)}ms`
-      );
-    }
-
-    this.currentSlot = Math.max(this.currentSlot, toSlot + 1);
   }
 
   /**
    * Handle a transaction with instructions for transaction handlers
    */
   private async handleTransaction(
-    transaction: BlockTransactionInfo,
+    transaction: {
+      block_number: number;
+      block_hash: string;
+      block_ts: number | null;
+      txn_hash: string | undefined;
+      instructions?: Array<{
+        index: number;
+        programId: string;
+        parsed: unknown;
+      }>;
+    },
   ): Promise<void> {
     if (!transaction.instructions || transaction.instructions.length === 0) {
       return;
@@ -697,35 +562,55 @@ export class Indexer {
       return;
     }
 
+    // Convert instructions to match IndexerTransaction format
+    const instructions = transaction.instructions.map((instr) => ({
+      index: instr.index,
+      programId: instr.programId,
+      data: instr.parsed,
+    }));
+
+
     const transactionData: IndexerTransaction = {
       hash: transaction.txn_hash,
       slot: transaction.block_number,
       blockTime: transaction.block_ts,
       blockHash: transaction.block_hash,
-      instructions: transaction.instructions,
+      data: {
+        block_number: transaction.block_number,
+        block_hash: transaction.block_hash,
+        block_ts: transaction.block_ts,
+        txn_hash: transaction.txn_hash,
+        instructions: instructions.map(instr => ({
+          index: instr.index,
+          programId: instr.programId,
+          data: instr.data as { type: string; info: unknown },
+        })),
+      },
     };
 
     // Call all transaction handlers
     for (const handler of allHandlers) {
       try {
-        // Filter by programId first
-        const hasProgramMatch = transaction.instructions.some(
-          (instr) => instr.programId === handler.programId,
-        );
 
-        if (!hasProgramMatch) {
-          continue;
+        if (handler.filterByInstructions && handler.filterByInstructions.length > 0) {
+          // Check if any instruction.programId matches any of filterByInstructions
+          const instructionNames = instructions.map(instr => (instr.data as { type: string }).type);
+          const hasIntersection = handler.filterByInstructions.some(filterInstructionName =>
+            instructionNames.includes(filterInstructionName)
+          );
+          if (!hasIntersection) {
+            return;
+          }
         }
 
-        if (handler.instructionNames && handler.instructionNames.length > 0) {
-          const instructionNames = transaction.instructions
-            .filter((instr) => instr.programId === handler.programId)
-            .map((instr) => (instr.parsed as { name: string }).name);
-          const hasNameMatch = handler.instructionNames.some((name) =>
-            instructionNames.includes(name),
+        if (handler.filterByProgramIds && handler.filterByProgramIds.length > 0) {
+          // Check if any instruction.programId matches any of filterByProgramIds
+          const instructionProgramIds = instructions.map(instr => instr.programId);
+          const hasIntersection = handler.filterByProgramIds.some(filterProgramId =>
+            instructionProgramIds.includes(filterProgramId)
           );
-          if (!hasNameMatch) {
-            continue;
+          if (!hasIntersection) {
+            return;
           }
         }
 
@@ -734,7 +619,7 @@ export class Indexer {
         }
         await handler.handler(transactionData, this.db);
       } catch (error) {
-        this.logger.error(`Error in transaction handler:`, error);
+        console.error(`Error in transaction handler:`, error);
       }
     }
   }
@@ -743,8 +628,8 @@ export class Indexer {
    * Handle a decoded event
    */
   private async handleEvent(
-    eventInfo: { index: number; programId: string; event: DecodedEvent },
-    transaction: BlockTransactionInfo,
+    eventInfo: { index: number; programId: string; event: any },
+    transaction: any,
   ): Promise<void> {
 
     const { programId, event } = eventInfo;
@@ -756,10 +641,15 @@ export class Indexer {
 
     // Check if this event type is registered for monitoring
     if (event.name && registeredProgram.eventTypes.includes(event.name)) {
+      // console.log(`Event detected: ${event.name} from program ${programId}`);
+      // Parse event with the provided IDL for better type safety
+      const parsedEvent = this.parseEventWithIdl(event, registeredProgram.idl);
+
+      // Call all registered event handlers for this contract and event
       await this.callEventHandlers(
         programId,
         event.name,
-        event,
+        parsedEvent,
         transaction,
       );
     }
@@ -767,18 +657,13 @@ export class Indexer {
 
   /**
    * Call all registered event handlers for a specific program and event
-   * 
-   * Deduplication: Before executing handlers, we check processed_events table.
-   * If event exists (by cursor_key, txn_hash, program_id, event_index), we skip
-   * handler execution. This allows safe reprocessing of blocks during recovery.
    */
   private async callEventHandlers(
     programId: string,
     eventName: string,
-    parsedEvent: DecodedEvent,
-    transaction: BlockTransactionInfo,
+    parsedEvent: any,
+    transaction: any,
   ): Promise<void> {
-
     const relevantHandlers = Array.from(this.eventHandlers.values()).filter(
       (handler) =>
         handler.programId === programId && handler.eventName === eventName,
@@ -786,20 +671,17 @@ export class Indexer {
 
     for (const handler of relevantHandlers) {
       try {
-        const eventTimestamp = transaction.block_ts
-          ? new Date(transaction.block_ts * 1000).toISOString()
-          : new Date().toISOString();
-
+        // Create event object with additional context
         const eventData: IndexerEvent<AnchorIdl, string> = {
-          params: parsedEvent.data as IndexerEvent<AnchorIdl, string>["params"],
-          timestamp: eventTimestamp,
-          transaction: {
-            hash: transaction.txn_hash ?? transaction.block_hash,
-            slot: transaction.block_number,
-            blockTime: transaction.block_ts ?? 0,
-          },
+          ...parsedEvent,
           programId,
           eventName,
+          timestamp: transaction.block_ts ? new Date(transaction.block_ts * 1000).toISOString() : new Date().toISOString(),
+          transaction: {
+            hash: transaction.block_hash,
+            slot: transaction.block_number,
+            blockTime: transaction.block_ts,
+          },
         };
 
         if (!this.db) {
@@ -807,11 +689,46 @@ export class Indexer {
         }
         await handler.handler(eventData as any, this.db);
       } catch (error) {
-        this.logger.error(
+        console.error(
           `Error in event handler for ${eventName} on ${programId}:`,
           error,
         );
       }
+    }
+  }
+
+  /**
+   * Parse event data using the provided IDL for better type safety
+   * Supports both legacy and current IDL formats
+   */
+  private parseEventWithIdl(event: any, idl: Idl | LegacyIdl): Partial<IndexerEvent> {
+    try {
+      // Find the event definition in the IDL
+      if (!idl.events) {
+        console.warn(`No events defined in IDL`);
+        return event;
+      }
+
+      const eventDefinition = idl.events.find(
+        (e: any) => e.name === event.name,
+      );
+      if (!eventDefinition) {
+        console.warn(`Event definition not found in IDL for ${event.name}`);
+        return event.parsed;
+      }
+
+
+      // Return the parsed event with IDL context
+      return {
+        name: event.name,
+        contract: event.contract,
+        type: event.type,
+        params: event.parsed,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      console.error(`Error parsing event with IDL:`, error);
+      return event.parsed;
     }
   }
 
@@ -832,55 +749,61 @@ export class Indexer {
     };
   }
 
-  private async initializeRealtimeSync(): Promise<void> {
-    this.websocketChannel = new WebSocketChannel({
-      nodeUrl: this.wsUrl,
-      autoReconnect: true,
-      maxBufferSize: 1000,
-      requestTimeout: 60_000,
-    });
+  private getProgressUiState(): any {
+    const now = Date.now();
+    const rps = this.calculateRPS(now);
+    const progress = this.calculateProgress();
+    const eta = this.calculateETA(rps, progress);
 
-    this.websocketChannel.on("open", () => {
-      this.wsHealthy = true;
-    });
-
-    this.websocketChannel.on("close", () => {
-      this.wsHealthy = false;
-    });
-
-    this.websocketChannel.on("error", (error) => {
-      this.logger.error("[WebSocketChannel] error:", error);
-    });
-
-    await this.websocketChannel.waitForConnection();
-
-    this.websocketSubscription = await this.websocketChannel.subscribeNewHeads({
-      commitment: "confirmed",
-      filter: { mentionsAccountOrProgram: this.getRegisteredProgramIds().join(",") },
-      showRewards: false,
-      encoding: "jsonParsed",
-      transactionDetails: "full",
-      maxSupportedTransactionVersion: 0,
-    });
-
-    const onData = (payload: BlockNotificationPayload) => {
-      if (!payload.context.slot) {
-        return;
-      }
-      this.processBlock(payload);
+    return {
+      chain: 'Solana',
+      status: this.isRunning ? 'Running' : 'Stopped',
+      block: this.currentSlot,
+      rps,
+      percent: progress,
+      eta,
+      mode: this.currentSlot >= this.progressState.latestSlot ? 'live' : 'historical',
+      events: Array.from(this.progressState.eventStats.entries()).map(([name, stats]) => ({
+        eventName: name,
+        count: stats.count,
+        averageDuration: stats.count > 0 ? stats.totalDuration / stats.count : 0,
+        contractAddress: stats.contractAddress,
+      })),
+      health: {
+        database: this.db !== null,
+        ws: false,
+        rpc: true,
+      },
     };
-
-    const onError = (error: Error) => {
-      this.logger.error("[WebSocketSubscription] error:", error);
-    };
-
-    const onClose = () => {
-      this.logger.warn("[WebSocketSubscription] closed");
-    };
-
-    this.websocketSubscription?.on("data", onData);
-    this.websocketSubscription?.on("error", onError);
-    this.websocketSubscription?.on("close", onClose);
   }
 
+  private calculateRPS(now: number): number {
+    const recentRequests = this.progressState.requestTimestamps.filter(
+      ts => now - ts < 10000 // last 10 seconds
+    );
+    return recentRequests.length / 10;
+  }
+
+  private calculateProgress(): number {
+    if (this.progressState.latestSlot === 0) return 0;
+    const total = this.progressState.latestSlot - this.progressState.startSlot;
+    const current = this.currentSlot - this.progressState.startSlot;
+
+    // If we're doing historical sync and have processed a reasonable amount,
+    // show some progress even if it's very small
+    if (total > 1000000 && current > 100) {
+      // For very large historical syncs, show progress based on time elapsed
+      const timeElapsed = Date.now() - this.progressState.startTime;
+      const estimatedTotalTime = timeElapsed * (total / current);
+      return Math.min(0.99, timeElapsed / estimatedTotalTime);
+    }
+
+    return Math.min(1, current / total);
+  }
+
+  private calculateETA(rps: number, progress: number): number {
+    if (rps === 0 || progress >= 1) return 0;
+    const remaining = this.progressState.latestSlot - this.currentSlot;
+    return remaining / rps;
+  }
 }

@@ -14,4 +14,3 @@ export * from "./watcher/schema-sync";
 export * from "./watcher/schema-watcher";
 export * from "./watcher/ci-migrate";
 export * from "./cloud-wallet";
-export * from "./utils/logger";
