@@ -35,7 +35,7 @@ async function main() {
   });
 
   console.log("📝 Registering event handlers...");
-  
+
   await indexer.onEvent({
     programId: "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P",
     idl: PumpFunIdl,
@@ -44,7 +44,7 @@ async function main() {
       const params = event.params;
 
       const isBuy = params.is_buy === true;
-      
+
       console.log("═".repeat(80));
       console.log(`🎯 ${isBuy ? "🟢 BUY" : "🔴 SELL"} TradeEvent`);
       console.log("─".repeat(80));
@@ -61,7 +61,7 @@ async function main() {
   console.log("📡 Starting indexer...");
   console.log("📊 Monitoring programs:", indexer.getRegisteredProgramIds());
   console.log("🎯 Event handlers registered:", indexer.getEventHandlers().length);
-  
+
   try {
     await indexer.start();
   } catch (error) {
