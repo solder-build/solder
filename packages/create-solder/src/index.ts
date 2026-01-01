@@ -229,6 +229,11 @@ RPC_URL=https://api.mainnet-beta.solana.com
 
 # Server Configuration
 PORT=4000
+
+# Development Configuration
+# Enable hot schema reloading (default: true)
+# Set to "false" to disable automatic schema syncing
+SOLDER_ENABLE_HOT_RELOAD=true
 `;
 
     if (useCloudWallets) {
