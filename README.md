@@ -198,9 +198,17 @@ const trades = solderTable(
 
 If you need to disable automatic schema syncing:
 
-```bash
-# Set NODE_ENV to production
-NODE_ENV=production pnpm run dev
+You can set `enableHotReload: false` in your `solder.config.ts`:
+
+```typescript
+export const solderConfig: SolderConfig = {
+  db: {
+    connectionString: process.env.DATABASE_URL ?? "",
+  },
+  dev: {
+    enableHotReload: false,
+  },
+};
 ```
 
 ### Production Deployments
