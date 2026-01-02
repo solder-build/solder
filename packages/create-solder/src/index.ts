@@ -40,6 +40,7 @@ interface CliAnswers {
   confirmPath: boolean;
   installDeps: boolean;
   useCloudWallets: boolean;
+  setupGit: boolean;
 }
 
 function showBanner() {
@@ -98,6 +99,12 @@ async function createCommand() {
         message: "Use GCP Cloud Wallets?",
         initial: false,
       },
+      {
+        type: "confirm",
+        name: "setupGit",
+        message: "Set up Git Repository?",
+        initial: true,
+      },
     ],
     {
       onCancel: () => {
@@ -112,7 +119,7 @@ async function createCommand() {
     process.exit(0);
   }
 
-  const { projectName, targetPath, installDeps, useCloudWallets } = answers as CliAnswers;
+  const { projectName, targetPath, installDeps, useCloudWallets, setupGit } = answers as CliAnswers;
   const resolvedTargetPath = path.resolve(targetPath);
   const templatePath = getTemplatePath();
 
@@ -268,6 +275,40 @@ SOLANA_RPC_ENDPOINT=https://api.devnet.solana.com
     );
 
     spinner.succeed(chalk.green("✓ Project created successfully!"));
+
+    if (setupGit) {
+      spinner.start("Initializing Git repository...");
+      try {
+        const { spawn } = await import("child_process");
+        await new Promise<void>((resolve, reject) => {
+          const gitInit = spawn("git", ["init"], {
+            cwd: resolvedTargetPath,
+            stdio: "inherit",
+            shell: true,
+          });
+
+          gitInit.on("close", (code) => {
+            if (code === 0) {
+              resolve();
+            } else {
+              reject(new Error(`git init exited with code ${code}`));
+            }
+          });
+
+          gitInit.on("error", (err) => {
+            reject(err);
+          });
+        });
+        spinner.succeed(chalk.green("✓ Git repository initialized!"));
+      } catch (error) {
+        spinner.fail(chalk.yellow("Failed to initialize Git repository"));
+        console.log(
+          chalk.yellow(
+            "  You can initialize it manually by running: git init",
+          ),
+        );
+      }
+    }
 
     // Install dependencies if requested
     if (installDeps) {
