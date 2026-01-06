@@ -29,7 +29,7 @@ export type ProgressUiState = {
   };
   health: {
     database: boolean;
-    ws: boolean;
+    stream: boolean;
     rpc: boolean;
   };
 };
@@ -47,8 +47,8 @@ export type ProgressUiSource = {
   isRunning: boolean;
   currentSlot: number;
   hasDatabase: boolean;
-  wsHealthy: boolean;
-  websocketActive: boolean;
+  streamHealthy: boolean;
+  streamActive: boolean;
 };
 
 export class ProgressUiController {
@@ -111,7 +111,7 @@ export class ProgressUiController {
     const currentHistoricalSlot = this.state.historicalSlot ?? source.currentSlot;
     const percent = this.calculateProgress(currentHistoricalSlot);
     const eta = this.calculateETA(rps, percent, currentHistoricalSlot);
-    const websocketConnected = source.websocketActive ? source.wsHealthy : false;
+    const streamConnected = source.streamActive ? source.streamHealthy : false;
 
     return {
       status: source.isRunning ? 'Running' : 'Stopped',
@@ -134,12 +134,12 @@ export class ProgressUiController {
         },
         realtime: {
           slot: this.realtimeSlot,
-          connected: websocketConnected,
+          connected: streamConnected,
         },
       },
       health: {
         database: source.hasDatabase,
-        ws: websocketConnected,
+        stream: streamConnected,
         rpc: true,
       },
     };
@@ -211,8 +211,10 @@ export class ProgressUiController {
         detail: `${ProgressUiController.formatPercentage(state.percent)} @ ${state.streams.historical.rps.toFixed(1)} rps`,
       },
       {
-        pipeline: 'Realtime WebSocket',
-        status: state.streams.realtime.connected ? pc.greenBright('Connected') : pc.redBright('Disconnected'),
+        pipeline: 'Realtime Stream',
+        status: state.streams.realtime.connected
+          ? pc.greenBright('Connected')
+          : pc.redBright('Disconnected'),
         slot: state.streams.realtime.slot ?? '-',
         detail: state.streams.realtime.connected ? 'streaming' : 'waiting',
       },
@@ -250,8 +252,8 @@ export class ProgressUiController {
         '│ RPC      │ ' +
         (state.health.rpc ? pc.greenBright('✓') : pc.redBright('✗')) +
         ' │\n' +
-        '│ WebSocket│ ' +
-        (state.health.ws ? pc.greenBright('✓') : pc.redBright('✗')) +
+      '│ Stream   │ ' +
+        (state.health.stream ? pc.greenBright('✓') : pc.redBright('✗')) +
         ' │',
     );
     lines.push('');

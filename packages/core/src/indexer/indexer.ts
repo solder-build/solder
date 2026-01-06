@@ -2,7 +2,7 @@ import { RpcClient } from "../rpc/rpc";
 import type { BlockTransactionInfo, BlockInfoResult, EventFilterOptions, InstructionFilterOptions } from "../types/block";
 import { DecodedEvent, isLegacyIdl } from "../idl/idl";
 import { ProgressUiController } from "../ui/progress";
-import { CursorStore, type StoredBlock, type StoredEvent } from "./db";
+import { CursorStore, type StoredBlock } from "./db";
 import { drizzle, NodePgDatabase } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import type { AnchorIdl } from "../idl/idl-types";
@@ -19,6 +19,12 @@ import type {
 } from "./types/config.types";
 import { parallelMap } from "../utils/async";
 import { buildBlockInfoResult } from "../utils/block";
+import YellowstoneGrpcClient, {
+  CommitmentLevel,
+  txEncode,
+  type SubscribeUpdate,
+  type SubscribeUpdateBlock,
+} from "@triton-one/yellowstone-grpc";
 import {
   WebSocketChannel,
   type WebSocketSubscription,
@@ -33,6 +39,8 @@ type BlockProcessingContext = {
   hasEventHandlers: boolean;
   hasTransactionHandlers: boolean;
 };
+
+type YellowstoneStream = Awaited<ReturnType<YellowstoneGrpcClient["subscribeOnce"]>>;
 
 export class Indexer {
   private readonly HISTORICAL_CHUNK_SIZE = 50;
@@ -51,6 +59,9 @@ export class Indexer {
     | (NodePgDatabase<Record<string, never>> & { $client: Pool })
     | null = null;
   private uiShutdown?: () => void;
+  private grpcClient?: YellowstoneGrpcClient;
+  private grpcStream?: YellowstoneStream;
+  private grpcHealthy = false;
   private websocketChannel?: WebSocketChannel;
   private websocketSubscription?: WebSocketSubscription<BlockNotificationPayload>;
   private wsHealthy = false;
@@ -58,7 +69,9 @@ export class Indexer {
   private firstRealtimeSlot: number | null = null; // Anchor point for historical sync
   private historicalSyncComplete = false;
   private progressUi?: ProgressUiController;
-  private wsUrl: string;
+  private wsUrl?: string;
+  private grpcUrl?: string;
+  private grpcToken?: string;
   private logger: Logger;
 
   constructor(config: IndexerConfig) {
@@ -69,15 +82,27 @@ export class Indexer {
       enableUIProgress = false,
       databaseUrl,
       wsUrl,
+      grpcUrl,
+      grpcToken,
       logger = defaultLogger,
     } = config;
+
+    if (wsUrl && grpcUrl) {
+      throw new Error("Provide either wsUrl or grpcUrl, not both.");
+    }
 
     this.rpcClient = new RpcClient({ endpoint: rpcUrl });
     this.currentSlot = startBlock;
     this.cursorKey = cursorKey;
     this.enableUIProgress = enableUIProgress;
     this.wsUrl = wsUrl;
+    this.grpcUrl = grpcUrl;
+    this.grpcToken = grpcToken;
     this.logger = logger;
+
+    if (!this.wsUrl && !this.grpcUrl) {
+      throw new Error("Indexer requires either wsUrl or grpcUrl for realtime streaming");
+    }
 
     const pool = new Pool({
       connectionString: databaseUrl,
@@ -304,15 +329,18 @@ export class Indexer {
       if (this.latestRealtimeSlot !== null) {
         this.progressUi.recordRealtimeSlot(this.latestRealtimeSlot);
       }
-      this.uiShutdown = ProgressUiController.setup(() =>
-        this.progressUi!.buildState({
+      this.uiShutdown = ProgressUiController.setup(() => {
+        // Compute stream health/active dynamically on each refresh
+        const streamHealthy = this.grpcUrl ? this.grpcHealthy : this.wsHealthy;
+        const streamActive = this.grpcUrl ? !!this.grpcStream : !!this.websocketChannel;
+        return this.progressUi!.buildState({
           isRunning: this.isRunning,
           currentSlot: this.currentSlot,
           hasDatabase: this.db !== null,
-          wsHealthy: this.wsHealthy,
-          websocketActive: !!this.websocketChannel,
-        }),
-      );
+          streamHealthy,
+          streamActive,
+        });
+      });
     } else {
       this.progressUi = undefined;
     }
@@ -334,16 +362,9 @@ export class Indexer {
       );
     }
 
-    await this.initializeRealtimeSync().catch((error) => {
-      this.logger.error("Failed to initialize websocket channel, falling back to HTTP polling:", error);
-      return null;
-    });
+    await this.initializeRealtimeSync()
 
-    // Wait for first realtime block to establish historical target
-    if (this.websocketSubscription) {
-      this.logger.info("⏳ Waiting for first realtime block to establish sync boundary...");
-      await this.waitForFirstRealtimeBlock();
-    }
+    await this.waitForFirstRealtimeBlock();
 
     // Historical sync target: up to (firstRealtimeSlot - 1) or current chain tip
     const historicalTarget = this.firstRealtimeSlot 
@@ -381,6 +402,15 @@ export class Indexer {
       this.uiShutdown();
       this.uiShutdown = undefined;
     }
+
+    if (this.grpcStream) {
+      this.grpcStream.removeAllListeners?.();
+      this.grpcStream.cancel();
+      this.grpcStream = undefined;
+    }
+
+    this.grpcClient = undefined;
+    this.grpcHealthy = false;
 
     if (this.websocketSubscription) {
       this.websocketSubscription.removeAllListeners();
@@ -424,6 +454,74 @@ export class Indexer {
         resolve();
       }, 10_000);
     });
+  }
+
+  /**
+   * Handle SubscribeUpdate messages emitted by Yellowstone.
+   */
+  private handleGrpcUpdate(update: SubscribeUpdate): void {
+    if (update.block?.slot) {
+      const payload = this.convertGrpcBlockToPayload(update.block);
+      if (payload) {
+        this.processBlock(payload);
+      }
+      return;
+    }
+  }
+
+  private convertGrpcBlockToPayload(block: SubscribeUpdateBlock): BlockNotificationPayload | null {
+    const slot = Number(block.slot);
+
+    const blockTime = block.blockTime?.timestamp ? Number(block.blockTime.timestamp) : undefined;
+    const blockHeight = block.blockHeight?.blockHeight
+      ? Number(block.blockHeight.blockHeight)
+      : undefined;
+
+    type GrpcDecodedTransaction = {
+      transaction: unknown;
+      meta: unknown;
+    };
+
+    const transactions = block.transactions
+      .map<GrpcDecodedTransaction | null>((transactionInfo) => {
+        try {
+          const encoded = txEncode.encode(
+            transactionInfo,
+            txEncode.encoding.Json,
+            0,
+            false,
+          );
+
+          if (!encoded) {
+            return null;
+          }
+
+          return {
+            transaction: encoded.transaction,
+            meta: encoded.meta ?? null,
+          };
+        } catch (error) {
+          this.logger.error("[Yellowstone] Failed to decode transaction from gRPC block update:", error);
+          return null;
+        }
+      })
+      .filter((txn): txn is GrpcDecodedTransaction => txn !== null);
+
+    return {
+      context: { slot },
+      value: {
+        slot,
+        block: {
+          blockhash: block.blockhash,
+          previousBlockhash: block.parentBlockhash,
+          parentSlot: Number(block.parentSlot) || 0,
+          blockTime,
+          blockHeight,
+          transactions,
+        },
+        err: null,
+      },
+    };
   }
 
   /**
@@ -833,6 +931,70 @@ export class Indexer {
   }
 
   private async initializeRealtimeSync(): Promise<void> {
+    if (this.grpcUrl) {
+      await this.initializeGrpcSync();
+      return;
+    } else if (this.wsUrl) {
+      await this.initializeWebsocketSync();
+      return;
+    }
+
+    throw new Error("Indexer requires either grpcUrl or wsUrl for realtime streaming");
+  }
+
+  private async initializeGrpcSync(): Promise<void> {
+    if (!this.grpcUrl) {
+      throw new Error("grpcUrl is required for Yellowstone streaming");
+    }
+
+    this.grpcClient = new YellowstoneGrpcClient(this.grpcUrl, this.grpcToken, {
+      "grpc.keepalive_time_ms": 20_000,
+    });
+
+    const registeredProgramIds = this.getRegisteredProgramIds();
+
+    const stream = await this.grpcClient.subscribeOnce(
+      {}, // accounts
+      {}, // slots
+      {}, // transactions
+      {}, // transactionsStatus
+      {}, // entry
+      {
+        solderBlocks: {
+          accountInclude: registeredProgramIds.length > 0 ? registeredProgramIds : [],
+          includeTransactions: true,
+          includeAccounts: false,
+          includeEntries: false,
+        },
+      },
+      {}, // blocksMeta
+      CommitmentLevel.CONFIRMED,
+      [], // accountsDataSlice
+    );
+
+    this.grpcStream = stream;
+    this.grpcHealthy = true;
+
+    this.logger.info(`Connected to Yellowstone gRPC stream at ${this.grpcUrl} (subscribed to blocks)`);
+
+    stream.on("data", (update) => this.handleGrpcUpdate(update));
+
+    stream.on("error", (error) => {
+      this.grpcHealthy = false;
+      this.logger.error("[Yellowstone] stream error:", error);
+    });
+
+    stream.on("end", () => {
+      this.grpcHealthy = false;
+      this.logger.warn("[Yellowstone] stream ended");
+    });
+  }
+
+  private async initializeWebsocketSync(): Promise<void> {
+    if (!this.wsUrl) {
+      throw new Error("wsUrl is required for WebSocket streaming");
+    }
+
     this.websocketChannel = new WebSocketChannel({
       nodeUrl: this.wsUrl,
       autoReconnect: true,
