@@ -91,6 +91,10 @@ export class Indexer {
       throw new Error("Provide either wsUrl or grpcUrl, not both.");
     }
 
+    if (!wsUrl && !grpcUrl) {
+      throw new Error("Indexer requires either wsUrl or grpcUrl for realtime streaming");
+    }
+
     this.rpcClient = new RpcClient({ endpoint: rpcUrl });
     this.currentSlot = startBlock;
     this.cursorKey = cursorKey;
@@ -99,10 +103,6 @@ export class Indexer {
     this.grpcUrl = grpcUrl;
     this.grpcToken = grpcToken;
     this.logger = logger;
-
-    if (!this.wsUrl && !this.grpcUrl) {
-      throw new Error("Indexer requires either wsUrl or grpcUrl for realtime streaming");
-    }
 
     const pool = new Pool({
       connectionString: databaseUrl,
