@@ -12,15 +12,26 @@ export interface WebsocketConfig {
   url: string;
 }
 
-export interface IndexerConfig {
+interface BaseIndexerConfig {
   startBlock: number;
   rpcUrl: string;
-  wsUrl: string;
-  databaseUrl: string; 
-  cursorKey?: string; 
+  databaseUrl: string;
+  cursorKey?: string;
   enableUIProgress?: boolean;
   logger?: Logger;
 }
+
+export type IndexerConfig =
+  | (BaseIndexerConfig & {
+      wsUrl: string;
+      grpcUrl?: never;
+      grpcToken?: never;
+    })
+  | (BaseIndexerConfig & {
+      wsUrl?: never;
+      grpcUrl: string;
+      grpcToken?: string;
+    });
 
 export interface RegisteredProgram {
   programId: string;

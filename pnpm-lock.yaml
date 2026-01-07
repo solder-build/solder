@@ -202,6 +202,9 @@ importers:
       '@solana/web3.js':
         specifier: ^1.98.4
         version: 1.98.4(bufferutil@4.0.9)(typescript@5.9.3)(utf-8-validate@5.0.10)
+      '@triton-one/yellowstone-grpc':
+        specifier: ^4.0.2
+        version: 4.0.2
       ansi-escapes:
         specifier: ^7.1.1
         version: 7.1.1
@@ -1278,6 +1281,10 @@ packages:
   '@tootallnate/once@2.0.0':
     resolution: {integrity: sha512-XCuKFP5PS55gnMVu3dty8KPatLqUoy/ZYzDzAGCQ8JNFCkLXzmI7vNHCR+XpbZaMWQK/vQubr7PkYq8g470J/A==}
     engines: {node: '>= 10'}
+
+  '@triton-one/yellowstone-grpc@4.0.2':
+    resolution: {integrity: sha512-RsHNbLz6zCU3OpQRBqKWcXqDDOKj1nxc/78LIt9kZWBU2kfYeFs7361eUpYE9Q3+BizjpCLF6BX9G1OitD76bw==}
+    engines: {node: '>=20.18.0'}
 
   '@types/connect@3.4.38':
     resolution: {integrity: sha512-K6uROf1LD88uDQqJCktA4yzL1YYAK6NgfsI0v/mTgyPKWsX1CnJ0XPSDhViejru1GcRkLWb8RlzFYJRqGUbaug==}
@@ -4157,6 +4164,10 @@ snapshots:
       tslib: 2.8.1
 
   '@tootallnate/once@2.0.0': {}
+
+  '@triton-one/yellowstone-grpc@4.0.2':
+    dependencies:
+      '@grpc/grpc-js': 1.14.0
 
   '@types/connect@3.4.38':
     dependencies:
