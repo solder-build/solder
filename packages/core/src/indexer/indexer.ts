@@ -60,6 +60,7 @@ export class Indexer {
   private progressUi?: ProgressUiController;
   private wsUrl: string;
   private logger: Logger;
+  private devMode?: { resetOnStart?: boolean };
 
   constructor(config: IndexerConfig) {
     const {
@@ -67,6 +68,7 @@ export class Indexer {
       startBlock,
       cursorKey = "default",
       enableUIProgress = false,
+      devMode,
       databaseUrl,
       wsUrl,
       logger = defaultLogger,
@@ -78,6 +80,7 @@ export class Indexer {
     this.enableUIProgress = enableUIProgress;
     this.wsUrl = wsUrl;
     this.logger = logger;
+    this.devMode = devMode;
 
     const pool = new Pool({
       connectionString: databaseUrl,
@@ -321,9 +324,21 @@ export class Indexer {
     if (this.cursorStore) {
       await this.cursorStore.connect();
       await this.cursorStore.init();
-      const existing = await this.cursorStore.getCursor(this.cursorKey, "historical");
-      if (existing && existing.last_slot > 0) {
-        this.currentSlot = existing.last_slot + 1; // resume from next slot
+      
+      // Reset indexer state if devMode.resetOnStart is enabled
+      if (this.devMode?.resetOnStart) {
+        this.logger.warn(
+          "⚠️  WARNING: devMode.resetOnStart is enabled. " +
+          "All indexer state (cursors, indexed blocks, processed events) will be reset. " +
+          "The indexer will restart from the beginning."
+        );
+        await this.cursorStore.resetCursor(this.cursorKey);
+        this.logger.info(`Reset indexer state for cursor key: ${this.cursorKey}`);
+      } else {
+        const existing = await this.cursorStore.getCursor(this.cursorKey, "historical");
+        if (existing && existing.last_slot > 0) {
+          this.currentSlot = existing.last_slot + 1; // resume from next slot
+        }
       }
     }
 

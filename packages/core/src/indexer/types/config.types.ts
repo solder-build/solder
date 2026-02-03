@@ -19,6 +19,9 @@ export interface IndexerConfig {
   databaseUrl: string; 
   cursorKey?: string; 
   enableUIProgress?: boolean;
+  devMode?: {
+    resetOnStart?: boolean;
+  };
   logger?: Logger;
 }
 
