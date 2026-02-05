@@ -230,4 +230,29 @@ export class CursorStore {
     );
     return (res.rowCount ?? 0) > 0;
   }
+
+  /**
+   * Reset all indexer state for a given cursor key.
+   * This deletes all cursors, indexed blocks, and processed events for the cursor.
+   * Use with caution - this will cause the indexer to restart from the beginning.
+   */
+  async resetCursor(cursorKey: string): Promise<void> {
+    const pool = this.requirePool();
+    await this.init();
+    
+    // Delete in order: processed_events, indexed_blocks, then indexer_state
+    // This ensures foreign key constraints (if any) are respected
+    await pool.query(
+      `DELETE FROM processed_events WHERE cursor_key = $1`,
+      [cursorKey],
+    );
+    await pool.query(
+      `DELETE FROM indexed_blocks WHERE cursor_key = $1`,
+      [cursorKey],
+    );
+    await pool.query(
+      `DELETE FROM indexer_state WHERE cursor_key = $1`,
+      [cursorKey],
+    );
+  }
 }

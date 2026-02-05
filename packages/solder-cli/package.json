@@ -1,6 +1,6 @@
 {
   "name": "solder-cli",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Solder CLI tools for IDL management",
   "type": "module",
   "bin": {
@@ -35,7 +35,7 @@
     "chalk": "^5.3.0",
     "ora": "^8.0.1",
     "fs-extra": "^11.2.0",
-    "@solder-build/core": "^0.1.26"
+    "@solder-build/core": "^0.2.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.17",

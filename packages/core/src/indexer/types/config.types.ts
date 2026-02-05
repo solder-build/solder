@@ -18,6 +18,9 @@ interface BaseIndexerConfig {
   databaseUrl: string;
   cursorKey?: string;
   enableUIProgress?: boolean;
+  devMode?: {
+    resetOnStart?: boolean;
+  };
   logger?: Logger;
 }
 
