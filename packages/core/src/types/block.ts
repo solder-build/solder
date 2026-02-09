@@ -6,10 +6,19 @@ export type InstructionInfo = {
   parsed: unknown;
 };
 
+/**
+ * Source of the event:
+ * - "cpi": Event emitted via emit_cpi! macro (instruction data)
+ * - "log": Event emitted via emit! macro (program logs)
+ */
+export type EventSource = "cpi" | "log";
+
 export type EventInfo = {
   index: number;
   programId: string;
   event: DecodedEvent;
+  /** Source of the event - "cpi" for emit_cpi! or "log" for emit! */
+  source: EventSource;
 };
 
 export type BlockTransactionInfo = {

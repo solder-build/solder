@@ -8,7 +8,7 @@ import {
 } from "@solana/web3.js";
 import { createSolanaRpc } from "@solana/rpc";
 import { fromLegacyPublicKey } from "@solana/compat";
-import { decodeEvent, decodeInstruction } from "../idl/idl";
+import { decodeEvent, decodeInstruction, parseEventsFromLogs } from "../idl/idl";
 import type {
   BlockInfoResult,
   BlockTransactionInfo,
@@ -81,18 +81,49 @@ export function buildBlockTransactionsFromParsedBlock({
     let events: EventInfo[] = [];
 
     if (includeEvents && eventFilter && hasTxnMessage) {
-      events = collectWith<EventInfo>(
+      // 1. Collect events from CPI instructions (emit_cpi! macro)
+      const cpiEvents = collectWith<EventInfo>(
         { transaction: txn.transaction as ParsedTransaction, meta: txn.meta },
         eventFilter,
         ({ index, programId, instr }) => {
           if (isPartiallyDecodedInstruction(instr)) {
             const programIdl = eventFilter.programIdls?.get(programId);
             const decoded = decodeEvent(instr.data, programId, programIdl);
-            return decoded ? { index, programId, event: decoded } : null;
+            return decoded ? { index, programId, event: decoded, source: "cpi" as const } : null;
           }
           return null;
         },
       );
+
+      // 2. Collect events from program logs (emit! macro)
+      const logMessages = (txn.meta as ParsedTransactionMeta & { logMessages?: string[] })?.logMessages;
+      const { events: logEvents, truncated } = parseEventsFromLogs(
+        logMessages,
+        eventFilter.programIdls ?? new Map(),
+      );
+
+      if (truncated) {
+        console.warn(
+          `[solder/indexer] ⚠️  Log truncation detected in transaction ${signature ?? "unknown"} at slot ${slot}. ` +
+          `Events emitted via Anchor's emit!() macro may have been lost. ` +
+          `Consider migrating to emit_cpi!() for more reliable event indexing.`
+        );
+      }
+
+      const logEventInfos: EventInfo[] = logEvents
+        .filter(({ programId }) => 
+          eventFilter.programIds.length === 0 || eventFilter.programIds.includes(programId)
+        )
+        .map(({ programId, event }, idx) => ({
+          // Use negative index to distinguish from CPI events
+          index: -(idx + 1),
+          programId,
+          event,
+          source: "log" as const,
+        }));
+
+      // Combine both sources (CPI events first, then log events)
+      events = [...cpiEvents, ...logEventInfos];
     }
 
     let instructions: InstructionInfo[] = [];

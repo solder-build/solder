@@ -161,3 +161,110 @@ export function decodeLegacyEvent(
   // Reuse existing decodeEvent since Borsh encoding is the same
   return decodeEvent(data, programId, idl as any);
 }
+
+/**
+ * Decode an event from base64-encoded log data (emit! macro format).
+ * The emit! macro logs events via sol_log_data with format: "Program data: <base64>"
+ * The base64 data contains: [8-byte discriminator][borsh-encoded event data]
+ */
+export function decodeEventFromLogData(
+  base64Data: string,
+  programId: string,
+  idl?: AnchorIdl,
+): DecodedEvent | null {
+  if (!idl) return null;
+  
+  try {
+    const eventCoder = getEventCoder(idl);
+    if (!eventCoder) return null;
+
+    // The log data is already base64 encoded and includes the discriminator
+    const decoded = eventCoder.decode(base64Data);
+    
+    if (!decoded) return null;
+    if (typeof decoded.name === "string") {
+      return {
+        contract: programId,
+        name: decoded.name,
+        type: "event",
+        data: decoded.data,
+      };
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Parse events from transaction log messages.
+ * Looks for "Program data:" entries which are emitted by Anchor's emit! macro.
+ * 
+ * Log format when emit! is used:
+ * - "Program <program_id> invoke [depth]"
+ * - ... other logs ...
+ * - "Program data: <base64_encoded_event>"
+ * - "Program <program_id> consumed X compute units"
+ * - "Program <program_id> success"
+ * 
+ * Returns events and whether logs appear to be truncated.
+ */
+export function parseEventsFromLogs(
+  logMessages: string[] | null | undefined,
+  programIdls: Map<string, AnchorIdl>,
+): { events: Array<{ programId: string; event: DecodedEvent }>; truncated: boolean } {
+  const events: Array<{ programId: string; event: DecodedEvent }> = [];
+  let truncated = false;
+  
+  if (!logMessages || logMessages.length === 0) {
+    return { events, truncated };
+  }
+
+  // Track the current program context from invoke/success logs
+  const programStack: string[] = [];
+  
+  for (const log of logMessages) {
+    // Check for log truncation indicator
+    if (log === "Log truncated") {
+      truncated = true;
+      continue;
+    }
+    
+    // Track program invocations to know which program emitted the event
+    const invokeMatch = log.match(/^Program (\w+) invoke \[\d+\]$/);
+    if (invokeMatch && invokeMatch[1]) {
+      programStack.push(invokeMatch[1]);
+      continue;
+    }
+    
+    const successMatch = log.match(/^Program (\w+) (success|failed)/);
+    if (successMatch && successMatch[1]) {
+      const completedProgram = successMatch[1];
+      const lastIndex = programStack.lastIndexOf(completedProgram);
+      if (lastIndex !== -1) {
+        programStack.splice(lastIndex, 1);
+      }
+      continue;
+    }
+    
+    const dataMatch = log.match(/^Program data: (.+)$/);
+    if (dataMatch && dataMatch[1]) {
+      const base64Data = dataMatch[1];
+      const currentProgram = programStack[programStack.length - 1];
+      
+      if (currentProgram) {
+        const idl = programIdls.get(currentProgram);
+        if (idl) {
+          const decoded = decodeEventFromLogData(base64Data, currentProgram, idl);
+          if (decoded) {
+            events.push({ programId: currentProgram, event: decoded });
+          } else {
+            truncated = true;
+          }
+        }
+      }
+    }
+  }
+  
+  return { events, truncated };
+}
