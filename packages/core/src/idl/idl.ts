@@ -258,8 +258,6 @@ export function parseEventsFromLogs(
           const decoded = decodeEventFromLogData(base64Data, currentProgram, idl);
           if (decoded) {
             events.push({ programId: currentProgram, event: decoded });
-          } else {
-            truncated = true;
           }
         }
       }
