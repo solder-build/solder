@@ -39,7 +39,10 @@ Solder is a comprehensive Solana backend framework that abstracts away the compl
 - Node.js >= 18
 - npm, pnpm, or yarn
 - PostgreSQL database
-- Solana RPC endpoint (optional: defaults to public mainnet RPC) with **WebSocket** connection. You would need **BOTH** URLs.
+- Solana RPC endpoint (optional: defaults to public mainnet RPC)
+- **Realtime streaming endpoint** (choose one):
+  - **Yellowstone gRPC endpoint** (recommended): Provides low-latency block streaming with better reliability
+  - **WebSocket endpoint**: Must support `blockSubscribe` RPC method (many providers don't support this)
 - Google Cloud Project with KMS (optional: only if using cloud wallets)
 
 ### Solder App Setup
@@ -198,9 +201,17 @@ const trades = solderTable(
 
 If you need to disable automatic schema syncing:
 
-```bash
-# Set NODE_ENV to production
-NODE_ENV=production pnpm run dev
+You can set `enableHotReload: false` in your `solder.config.ts`:
+
+```typescript
+export const solderConfig: SolderConfig = {
+  db: {
+    connectionString: process.env.DATABASE_URL ?? "",
+  },
+  dev: {
+    enableHotReload: false,
+  },
+};
 ```
 
 ### Production Deployments
@@ -457,12 +468,25 @@ The `Indexer` class is the core component for monitoring Solana blockchain event
 ```typescript
 import { Indexer } from "@solder-build/core";
 
+// Example with gRPC streaming (recommended)
 const indexer = new Indexer({
   startBlock: 300000000, // Starting slot number
   rpcUrl: process.env.RPC_URL, // Solana RPC endpoint
   databaseUrl: process.env.DATABASE_URL, // PostgreSQL connection string
   cursorKey: "my-indexer", // Unique identifier for this indexer
   enableUIProgress: true, // Enable real-time progress UI
+  grpcUrl: process.env.GRPC_URL, // Yellowstone gRPC endpoint
+  grpcToken: process.env.GRPC_TOKEN, // Optional: gRPC authentication token
+});
+
+// Example with WebSocket streaming (requires blockSubscribe support)
+const indexerWS = new Indexer({
+  startBlock: 300000000,
+  rpcUrl: process.env.RPC_URL,
+  databaseUrl: process.env.DATABASE_URL,
+  cursorKey: "my-indexer",
+  enableUIProgress: true,
+  wsUrl: process.env.WS_URL, // WebSocket endpoint (must support blockSubscribe)
 });
 ```
 
@@ -474,6 +498,33 @@ const indexer = new Indexer({
 | `rpcUrl`      | `string` | Yes      | Solana RPC endpoint URL                                 |
 | `databaseUrl` | `string` | No       | PostgreSQL connection string (required for persistence) |
 | `cursorKey`   | `string` | No       | Unique key for cursor storage (defaults to "default")   |
+| `enableUIProgress` | `boolean` | No    | Enable real-time progress UI (defaults to `false`)      |
+| `grpcUrl`     | `string` | Yes*     | Yellowstone gRPC endpoint for streaming (required if `wsUrl` not provided) |
+| `grpcToken`   | `string` | No       | Optional authentication token for gRPC endpoint          |
+| `wsUrl`       | `string` | Yes*     | WebSocket endpoint for streaming (required if `grpcUrl` not provided) |
+| `logger`      | `Logger` | No       | Custom logger instance (defaults to console logger)      |
+
+\* **Either `grpcUrl` or `wsUrl` must be provided, but not both.**
+
+### ⚠️ WebSocket Requirements and Limitations
+
+**Important:** The `wsUrl` option requires a WebSocket endpoint that supports the `blockSubscribe` RPC method. Many RPC providers (including Helius) do not support this method, which will cause the indexer to fail with a "Method not found" error.
+
+**If WebSocket initialization fails, the indexer will stop immediately with an error message.** There is no automatic fallback to HTTP polling.
+
+**Recommendation:** Use `grpcUrl` with a Yellowstone gRPC endpoint for more reliable streaming. Yellowstone gRPC provides:
+- Lower latency than WebSocket
+- More efficient data handling
+- Better reliability and reconnection handling
+- Direct block data without additional RPC calls
+
+**Example error when WebSocket doesn't support `blockSubscribe`:**
+
+```
+[ERROR] Failed to initialize websocket channel: Error: Method not found
+```
+
+If you encounter this error, switch to using `grpcUrl` instead of `wsUrl`.
 
 ### Registering Event Handlers
 
@@ -554,7 +605,7 @@ When `enableUIProgress: true` is set, Solder provides a real-time terminal UI th
 - **Indexing Stats**: Real-time event processing statistics with RPS (requests per second)
 - **Event Table**: Live view of processed events with counts and performance metrics
 - **Progress Bar**: Visual progress indicator with ETA calculations
-- **Health Monitoring**: Database, WebSocket, and RPC connection status
+- **Health Monitoring**: Database, realtime stream (gRPC/WebSocket), and RPC connection status
 
 The progress UI automatically updates in place, providing a clean development experience without cluttering your terminal output.
 
@@ -588,6 +639,11 @@ export const initializeIndexer = async () => {
     databaseUrl: process.env.DATABASE_URL,
     cursorKey: "pump-fun-indexer",
     enableUIProgress: true,
+    // Use gRPC for reliable streaming (recommended)
+    grpcUrl: process.env.GRPC_URL,
+    grpcToken: process.env.GRPC_TOKEN, // Optional
+    // Or use WebSocket (only if your provider supports blockSubscribe)
+    // wsUrl: process.env.WS_URL,
   });
 
   await indexer.onEvent({
